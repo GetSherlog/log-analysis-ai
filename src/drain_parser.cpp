@@ -34,18 +34,20 @@ std::vector<std::string> tokenize(std::string_view str, char delimiter = ' ') {
     }
     
     try {
-        // Create a safe copy of the string_view
-        std::string str_copy;
-        str_copy.reserve(str.size());
-        str_copy.assign(str.data(), str.size());
+        size_t start = 0;
+        size_t end = 0;
         
-        std::istringstream tokenStream(str_copy);
-        std::string token;
-        
-        while (std::getline(tokenStream, token, delimiter)) {
-            if (!token.empty()) {
-                tokens.push_back(token);
+        // Find each token by delimiter
+        while ((end = str.find(delimiter, start)) != std::string_view::npos) {
+            if (end > start) {  // Skip empty tokens
+                tokens.emplace_back(str.substr(start, end - start));
             }
+            start = end + 1;
+        }
+        
+        // Add the last token if it exists
+        if (start < str.size()) {
+            tokens.emplace_back(str.substr(start));
         }
     } catch (const std::exception& e) {
         std::lock_guard<std::mutex> lock(log_mutex);
@@ -67,11 +69,18 @@ struct LogCluster {
     int id;
     std::string log_template;
     std::vector<std::string> tokens;
-    std::unordered_map<size_t, std::unordered_set<std::string>> parameters;
+    // Use a more memory-efficient way to store parameters
+    // Instead of storing sets of strings, store parameter indices only
+    std::unordered_set<size_t> parameter_indices;
     
     LogCluster(int id, const std::vector<std::string>& tokens) 
         : id(id), tokens(tokens) {
-        // Initialize the template with the tokens
+        // Initialize the template with the tokens - do this lazily to avoid duplicate work
+        update_template();
+    }
+    
+    void update_template() {
+        // Regenerate the template from tokens
         log_template = std::accumulate(tokens.begin(), tokens.end(), std::string(),
             [](const std::string& a, const std::string& b) {
                 return a.empty() ? b : a + " " + b;
@@ -97,10 +106,15 @@ public:
         LogRecordObject record;
         
         // Preprocess the log line if needed
-        std::string preprocessed_line = preprocess_log(line);
+        std::string_view preprocessed_line = preprocess_log(line);
         
         // Tokenize the log message
         std::vector<std::string> tokens = tokenize(preprocessed_line);
+        
+        // Intern common strings to reduce memory usage
+        for (auto& token : tokens) {
+            token = std::string(string_pool_.intern(token));
+        }
         
         // Match or create a new log cluster
         auto cluster = match_log_message(tokens);
@@ -110,7 +124,7 @@ public:
         extract_parameters(tokens, cluster, parameters);
         
         // Fill the log record
-        record.body = preprocessed_line;
+        record.body = std::string(preprocessed_line);
         record.attributes = std::move(parameters);
         
         // Extract timestamp and severity if available
@@ -126,23 +140,23 @@ private:
     std::shared_ptr<Node> root_;
     int cluster_id_counter_;
     std::mutex parser_mutex_; // Mutex for thread safety
+    StringPool string_pool_;  // String pool for memory optimization
     
-    std::string preprocess_log(std::string_view line) {
+    std::string_view preprocess_log(std::string_view line) {
         // Check for empty string_view to avoid issues
         if (line.empty()) {
-            return "";
+            static const std::string empty;
+            return empty;
         }
         
         try {
-            // Create a safe copy of the string_view
-            std::string result;
-            result.reserve(line.size());
-            result.assign(line.data(), line.size());
-            return result;
+            // Return the string_view directly instead of copying
+            return line;
         } catch (const std::exception& e) {
             std::lock_guard<std::mutex> lock(log_mutex);
             std::cerr << "Error in preprocess_log function: " << e.what() << std::endl;
-            return "";
+            static const std::string empty;
+            return empty;
         }
     }
     
@@ -233,31 +247,26 @@ private:
     
     void update_template(std::shared_ptr<LogCluster> cluster, const std::vector<std::string>& tokens) {
         // Update the template by replacing non-matching tokens with wildcards
-        std::vector<std::string> new_template = cluster->tokens;
+        bool template_changed = false;
         
         for (size_t i = 0; i < tokens.size(); ++i) {
-            if (i < new_template.size()) {
+            if (i < cluster->tokens.size()) {
                 // If the tokens don't match and it's not already a wildcard, replace with wildcard
-                if (new_template[i] != tokens[i] && new_template[i] != WILDCARD) {
-                    // Store the parameter value
-                    if (cluster->parameters.find(i) == cluster->parameters.end()) {
-                        cluster->parameters[i] = std::unordered_set<std::string>();
-                    }
-                    cluster->parameters[i].insert(new_template[i]);
-                    cluster->parameters[i].insert(tokens[i]);
+                if (cluster->tokens[i] != tokens[i] && cluster->tokens[i] != WILDCARD) {
+                    // Mark this position as a parameter
+                    cluster->parameter_indices.insert(i);
                     
                     // Replace with wildcard
-                    new_template[i] = WILDCARD;
+                    cluster->tokens[i] = WILDCARD;
+                    template_changed = true;
                 }
             }
         }
         
-        // Update the cluster's tokens and template
-        cluster->tokens = new_template;
-        cluster->log_template = std::accumulate(new_template.begin(), new_template.end(), std::string(),
-            [](const std::string& a, const std::string& b) {
-                return a.empty() ? b : a + " " + b;
-            });
+        // Only update the template if it changed
+        if (template_changed) {
+            cluster->update_template();
+        }
     }
     
     void split_node(std::shared_ptr<Node> node) {
@@ -281,9 +290,9 @@ private:
     void extract_parameters(const std::vector<std::string>& tokens, 
                            std::shared_ptr<LogCluster> cluster,
                            std::unordered_map<std::string, std::string>& parameters) {
-        // Extract parameters based on the template
-        for (size_t i = 0; i < std::min(tokens.size(), cluster->tokens.size()); ++i) {
-            if (cluster->tokens[i] == WILDCARD) {
+        // Extract parameters based on parameter indices
+        for (size_t i : cluster->parameter_indices) {
+            if (i < tokens.size()) {
                 // Use position as parameter name
                 parameters["param_" + std::to_string(i)] = tokens[i];
             }

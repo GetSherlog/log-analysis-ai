@@ -7,11 +7,41 @@
 #include <unordered_map>
 #include <memory>
 #include <regex>
+#include <unordered_set>
 
 namespace logai {
 
 // Forward declaration of the implementation class
 class DrainParserImpl;
+
+// String pool for interning common strings to reduce memory usage
+class StringPool {
+public:
+    std::string_view intern(std::string_view str) {
+        // Fast path for empty strings
+        if (str.empty()) {
+            static const std::string empty;
+            return empty;
+        }
+        
+        // Check if the string is already in the pool
+        auto it = pool_.find(std::string(str));
+        if (it != pool_.end()) {
+            return *it;
+        }
+        
+        // Insert the string into the pool
+        auto result = pool_.insert(std::string(str));
+        return *result.first;
+    }
+    
+    size_t size() const {
+        return pool_.size();
+    }
+    
+private:
+    std::unordered_set<std::string> pool_;
+};
 
 /**
  * DRAIN log parser - A high-performance implementation of the DRAIN log parsing algorithm

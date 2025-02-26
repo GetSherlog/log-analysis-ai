@@ -1,6 +1,7 @@
-# Source files (all files in the current directory, excluding perf_test.cpp)
+# Source files (all files in the current directory, excluding perf_test.cpp and large_perf_test.cpp)
 file(GLOB SOURCES "*.cpp")
 list(FILTER SOURCES EXCLUDE REGEX "perf_test\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "large_perf_test\\.cpp$")
 file(GLOB HEADERS "*.h")
 
 # Create library
@@ -23,8 +24,17 @@ target_link_libraries(perf_test
     PRIVATE PkgConfig::PARQUET
 )
 
+# Add large file performance test executable
+add_executable(large_perf_test large_perf_test.cpp)
+target_link_libraries(large_perf_test 
+    PRIVATE logai
+    PRIVATE nlohmann_json::nlohmann_json
+    PRIVATE PkgConfig::ARROW
+    PRIVATE PkgConfig::PARQUET
+)
+
 # Install
-install(TARGETS logai perf_test
+install(TARGETS logai perf_test large_perf_test
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)

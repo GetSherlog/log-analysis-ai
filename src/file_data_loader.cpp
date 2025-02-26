@@ -248,8 +248,9 @@ void FileDataLoader::producer_thread(MemoryMappedFile& file, ThreadSafeQueue<Log
         if (config_.use_memory_mapping) {
             // Use a vector to collect lines in batches
             std::vector<std::string> batch_lines;
-            batch_lines.reserve(100); // Process 100 lines at a time
+            batch_lines.reserve(current_batch_size_.load()); // Use adaptive batch size
             size_t batch_id = 0;
+            size_t lines_processed = 0;
             
             read_file_memory_mapped(config_.file_path, [&](std::string_view line) {
                 try {
@@ -262,18 +263,36 @@ void FileDataLoader::producer_thread(MemoryMappedFile& file, ThreadSafeQueue<Log
                         
                         // Add to current batch
                         batch_lines.push_back(std::move(line_copy));
+                        lines_processed++;
                         
                         // If batch is full, push it to the queue
-                        if (batch_lines.size() >= 100) {
+                        size_t current_batch_size = current_batch_size_.load();
+                        if (batch_lines.size() >= current_batch_size) {
                             LogBatch batch{batch_id++, std::move(batch_lines)};
                             input_queue.push(std::move(batch));
                             
                             // Reset batch_lines for next batch
                             batch_lines = std::vector<std::string>();
-                            batch_lines.reserve(100);
+                            batch_lines.reserve(current_batch_size);
                             
                             // Update total batches
                             total_batches.store(batch_id);
+                            
+                            // Adjust batch size based on queue size and memory usage
+                            adjust_batch_size(input_queue);
+                            
+                            // If memory pressure is high, pause briefly to let consumers catch up
+                            if (memory_pressure_.load()) {
+                                size_t queue_size = input_queue.size();
+                                if (queue_size > queue_high_watermark_.load()) {
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                                }
+                            }
+                        }
+                        
+                        // Report progress periodically
+                        if (lines_processed % 10000 == 0) {
+                            std::cout << "Processed " << lines_processed << " lines" << std::endl;
                         }
                     }
                 } catch (const std::exception& e) {
@@ -290,25 +309,44 @@ void FileDataLoader::producer_thread(MemoryMappedFile& file, ThreadSafeQueue<Log
         } else {
             // Use a vector to collect lines in batches
             std::vector<std::string> batch_lines;
-            batch_lines.reserve(100); // Process 100 lines at a time
+            batch_lines.reserve(current_batch_size_.load()); // Use adaptive batch size
             size_t batch_id = 0;
+            size_t lines_processed = 0;
             
             read_file_by_chunks(config_.file_path, [&](const std::string& line) {
                 try {
                     // Add to current batch
                     batch_lines.push_back(line);
+                    lines_processed++;
                     
                     // If batch is full, push it to the queue
-                    if (batch_lines.size() >= 100) {
+                    size_t current_batch_size = current_batch_size_.load();
+                    if (batch_lines.size() >= current_batch_size) {
                         LogBatch batch{batch_id++, std::move(batch_lines)};
                         input_queue.push(std::move(batch));
                         
                         // Reset batch_lines for next batch
                         batch_lines = std::vector<std::string>();
-                        batch_lines.reserve(100);
+                        batch_lines.reserve(current_batch_size);
                         
                         // Update total batches
                         total_batches.store(batch_id);
+                        
+                        // Adjust batch size based on queue size and memory usage
+                        adjust_batch_size(input_queue);
+                        
+                        // If memory pressure is high, pause briefly to let consumers catch up
+                        if (memory_pressure_.load()) {
+                            size_t queue_size = input_queue.size();
+                            if (queue_size > queue_high_watermark_.load()) {
+                                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                            }
+                        }
+                    }
+                    
+                    // Report progress periodically
+                    if (lines_processed % 10000 == 0) {
+                        std::cout << "Processed " << lines_processed << " lines" << std::endl;
                     }
                 } catch (const std::exception& e) {
                     std::cerr << "Error creating batch: " << e.what() << std::endl;
@@ -634,6 +672,505 @@ arrow::Status FileDataLoader::write_to_parquet(std::shared_ptr<arrow::Table> tab
     } catch (const std::exception& e) {
         return arrow::Status::IOError("Error writing Parquet file: ", e.what());
     }
+}
+
+// Add memory monitoring and adaptive batch size implementations
+size_t FileDataLoader::get_current_memory_usage() const {
+    // Implementation for Linux-based systems
+    #ifdef __linux__
+    FILE* file = fopen("/proc/self/status", "r");
+    if (file == nullptr) {
+        return 0;
+    }
+    
+    size_t memory = 0;
+    char line[128];
+    
+    while (fgets(line, 128, file) != nullptr) {
+        if (strncmp(line, "VmRSS:", 6) == 0) {
+            // Extract the value (in kB)
+            long value = 0;
+            sscanf(line, "VmRSS: %ld", &value);
+            memory = static_cast<size_t>(value * 1024); // Convert to bytes
+            break;
+        }
+    }
+    
+    fclose(file);
+    return memory;
+    #elif defined(__APPLE__)
+    // macOS implementation could use mach calls, but simplified version returns estimated usage
+    return processed_lines_.load() * 1024; // Rough estimate based on lines processed
+    #else
+    // For other platforms, return a conservative estimate
+    return processed_lines_.load() * 1024;
+    #endif
+}
+
+bool FileDataLoader::detect_memory_pressure() const {
+    // Check system memory pressure
+    const size_t memory_usage = get_current_memory_usage();
+    const size_t memory_threshold = 3UL * 1024 * 1024 * 1024; // 3GB threshold
+    
+    if (memory_usage > memory_threshold) {
+        return true;
+    }
+    
+    // Check if queue is growing too large
+    if (batch_queue_.size() > queue_high_watermark_.load()) {
+        return true;
+    }
+    
+    return false;
+}
+
+void FileDataLoader::adjust_batch_size(ThreadSafeQueue<LogBatch>& queue) {
+    size_t current_size = current_batch_size_.load();
+    
+    // Check for memory pressure
+    if (detect_memory_pressure()) {
+        // Under memory pressure, reduce batch size
+        size_t new_size = current_size / 2;
+        if (new_size < min_batch_size_.load()) {
+            new_size = min_batch_size_.load();
+        }
+        
+        if (new_size != current_size) {
+            current_batch_size_.store(new_size);
+            std::cout << "Memory pressure detected: Reduced batch size to " << new_size << std::endl;
+            
+            // Set memory pressure flag
+            memory_pressure_.store(true);
+        }
+    } else if (queue.size() < queue_low_watermark_.load() && !memory_pressure_.load()) {
+        // Queue is small and no memory pressure, increase batch size
+        size_t new_size = current_size * 2;
+        if (new_size > max_batch_size_.load()) {
+            new_size = max_batch_size_.load();
+        }
+        
+        if (new_size != current_size) {
+            current_batch_size_.store(new_size);
+            std::cout << "Increased batch size to " << new_size << std::endl;
+        }
+    }
+}
+
+void FileDataLoader::process_in_chunks(const std::string& filepath, size_t chunk_size, const std::string& output_dir) {
+    // Get file size
+    std::filesystem::path path(filepath);
+    if (!std::filesystem::exists(path)) {
+        throw std::runtime_error("File does not exist: " + filepath);
+    }
+    
+    size_t file_size = std::filesystem::file_size(path);
+    size_t num_chunks = (file_size + chunk_size - 1) / chunk_size; // Ceiling division
+    
+    std::cout << "Processing file in " << num_chunks << " chunks" << std::endl;
+    
+    // Create output directory if it doesn't exist
+    std::filesystem::path output_path(output_dir);
+    if (!std::filesystem::exists(output_path)) {
+        std::filesystem::create_directories(output_path);
+    }
+    
+    // Process each chunk
+    for (size_t i = 0; i < num_chunks; i++) {
+        std::cout << "Processing chunk " << (i + 1) << " of " << num_chunks << std::endl;
+        
+        // Calculate chunk bounds
+        size_t start_offset = i * chunk_size;
+        size_t end_offset = std::min((i + 1) * chunk_size, file_size);
+        
+        // Open file for reading chunk
+        std::ifstream file(filepath, std::ios::binary);
+        if (!file.is_open()) {
+            throw std::runtime_error("Failed to open file: " + filepath);
+        }
+        
+        // Seek to start of chunk
+        file.seekg(start_offset);
+        
+        // Read chunk data
+        std::vector<char> buffer(end_offset - start_offset);
+        file.read(buffer.data(), buffer.size());
+        
+        // Create temporary file for this chunk
+        std::string temp_filename = output_dir + "/chunk_" + std::to_string(i) + ".log";
+        std::ofstream temp_file(temp_filename);
+        
+        if (!temp_file.is_open()) {
+            throw std::runtime_error("Failed to create temporary file: " + temp_filename);
+        }
+        
+        // Find line boundaries
+        size_t pos = 0;
+        // Skip partial line at beginning (except for first chunk)
+        if (i > 0) {
+            while (pos < buffer.size() && buffer[pos] != '\n') {
+                pos++;
+            }
+            if (pos < buffer.size()) {
+                pos++; // Skip the newline
+            }
+        }
+        
+        // Process lines in this chunk
+        size_t line_start = pos;
+        while (pos < buffer.size()) {
+            if (buffer[pos] == '\n') {
+                // Found end of line, write it to temp file
+                temp_file.write(&buffer[line_start], pos - line_start + 1);
+                line_start = pos + 1;
+            }
+            pos++;
+        }
+        
+        // Handle the last line in the chunk
+        if (line_start < buffer.size()) {
+            temp_file.write(&buffer[line_start], buffer.size() - line_start);
+        }
+        
+        temp_file.close();
+        
+        // Process this chunk with normal data loading
+        DataLoaderConfig chunk_config = config_;
+        chunk_config.file_path = temp_filename;
+        
+        // Create a new loader for this chunk with the modified config
+        FileDataLoader chunk_loader(chunk_config);
+        auto records = chunk_loader.load_data();
+        
+        // Create a DataFrame for this chunk
+        auto table = chunk_loader.log_to_dataframe(temp_filename, config_.log_type);
+        
+        // Write the chunk to a Parquet file
+        std::string output_filename = output_dir + "/chunk_" + std::to_string(i) + ".parquet";
+        chunk_loader.write_to_parquet(table, output_filename);
+        
+        // Clean up temporary file
+        std::filesystem::remove(temp_filename);
+        
+        std::cout << "Completed chunk " << (i + 1) << " of " << num_chunks << std::endl;
+    }
+    
+    std::cout << "All chunks processed successfully" << std::endl;
+}
+
+/**
+ * @brief Process a large file in memory-adaptive chunks 
+ * @param output_file The output file path
+ * @param memory_limit The memory limit in bytes
+ * @return std::shared_ptr<arrow::Table> The final Arrow table result
+ */
+std::shared_ptr<arrow::Table> FileDataLoader::process_large_file(
+    const std::string& input_file,
+    const std::string& parser_type,
+    size_t memory_limit_mb,
+    size_t chunk_size,
+    bool force_chunking) {
+    
+    // Check if file exists
+    if (!std::filesystem::exists(input_file)) {
+        throw std::runtime_error("Input file does not exist: " + input_file);
+    }
+    
+    // Get file size in bytes for accurate line estimation
+    size_t file_size_bytes = std::filesystem::file_size(input_file);
+    size_t file_size_mb = file_size_bytes / (1024 * 1024);
+    std::cout << "File size: " << file_size_mb << " MB" << std::endl;
+    
+    // If file is small enough and not forced to chunk, process directly
+    if (file_size_mb < memory_limit_mb / 2 && !force_chunking) {
+        std::cout << "File is small enough to process directly." << std::endl;
+        
+        // Configure for this specific file
+        DataLoaderConfig process_config = config_;
+        process_config.file_path = input_file;
+        process_config.log_type = parser_type;
+        process_config.num_threads = std::min(8, (int)std::thread::hardware_concurrency());
+        
+        // Use the file data loader to load the data
+        FileDataLoader direct_loader(process_config);
+        auto start_time = std::chrono::high_resolution_clock::now();
+        
+        std::vector<LogRecordObject> records = direct_loader.load_data();
+        
+        // Create an Arrow table from the records
+        std::shared_ptr<arrow::Table> table = direct_loader.log_to_dataframe(input_file, parser_type);
+        
+        auto end_time = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+        
+        std::cout << "Processed " << records.size() << " records in " 
+                  << duration.count() << " ms" << std::endl;
+        
+        return table;
+    }
+    
+    // For larger files, process in chunks
+    std::cout << "File is too large to process directly. Processing in chunks..." << std::endl;
+    
+    // Create temporary directory for chunk processing
+    std::string temp_dir = std::filesystem::temp_directory_path().string() + "/logai_chunks_" + 
+                         std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(temp_dir);
+    std::cout << "Created temporary directory: " << temp_dir << std::endl;
+    
+    // Estimate number of lines based on a sample
+    std::ifstream sample_file(input_file);
+    if (!sample_file) {
+        throw std::runtime_error("Failed to open input file: " + input_file);
+    }
+    
+    size_t sample_size = 1000;
+    size_t sample_lines = 0;
+    size_t total_sample_bytes = 0;
+    std::string line;
+    
+    while (sample_lines < sample_size && std::getline(sample_file, line)) {
+        total_sample_bytes += line.size() + 1; // +1 for newline
+        sample_lines++;
+    }
+    
+    // Estimate total lines
+    double bytes_per_line = static_cast<double>(total_sample_bytes) / sample_lines;
+    size_t estimated_total_lines = static_cast<size_t>(file_size_bytes / bytes_per_line);
+    
+    std::cout << "Estimated total lines: " << estimated_total_lines << std::endl;
+    
+    // Calculate number of chunks needed
+    size_t lines_per_chunk = chunk_size;
+    size_t num_chunks = (estimated_total_lines + lines_per_chunk - 1) / lines_per_chunk;
+    
+    std::cout << "Processing file in " << num_chunks << " chunks of " 
+              << lines_per_chunk << " lines each" << std::endl;
+    
+    // Process file in chunks
+    std::vector<std::shared_ptr<arrow::Table>> chunk_tables;
+    
+    std::ifstream input(input_file);
+    if (!input) {
+        throw std::runtime_error("Failed to open input file: " + input_file);
+    }
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    for (size_t chunk_idx = 0; chunk_idx < num_chunks; chunk_idx++) {
+        std::cout << "Processing chunk " << (chunk_idx + 1) << " of " << num_chunks << std::endl;
+        
+        // Create chunk file
+        std::string chunk_file = temp_dir + "/chunk_" + std::to_string(chunk_idx) + ".log";
+        std::ofstream chunk_out(chunk_file);
+        
+        if (!chunk_out) {
+            throw std::runtime_error("Failed to create chunk file: " + chunk_file);
+        }
+        
+        // Read lines for this chunk
+        size_t lines_read = 0;
+        line.clear();
+        
+        while (lines_read < lines_per_chunk && std::getline(input, line)) {
+            chunk_out << line << std::endl;
+            lines_read++;
+        }
+        
+        chunk_out.close();
+        
+        if (lines_read == 0) {
+            // No more lines to read
+            break;
+        }
+        
+        // Process this chunk
+        DataLoaderConfig chunk_config = config_;
+        chunk_config.file_path = chunk_file;
+        chunk_config.log_type = parser_type;
+        chunk_config.num_threads = std::min(4, (int)std::thread::hardware_concurrency());
+        
+        FileDataLoader chunk_loader(chunk_config);
+        std::shared_ptr<arrow::Table> chunk_table = chunk_loader.log_to_dataframe(chunk_file, parser_type);
+        
+        if (chunk_table && chunk_table->num_rows() > 0) {
+            chunk_tables.push_back(chunk_table);
+            std::cout << "  Chunk " << (chunk_idx + 1) << " processed with " 
+                      << chunk_table->num_rows() << " records" << std::endl;
+        }
+        
+        // Clean up the chunk file
+        std::filesystem::remove(chunk_file);
+    }
+    
+    // Combine all chunk tables
+    std::shared_ptr<arrow::Table> combined_table;
+    
+    if (chunk_tables.empty()) {
+        throw std::runtime_error("No data processed from file");
+    } else if (chunk_tables.size() == 1) {
+        combined_table = chunk_tables[0];
+    } else {
+        // Unify schemas before concatenation
+        std::cout << "Unifying schemas across " << chunk_tables.size() << " chunks..." << std::endl;
+        auto unified_tables = unify_table_schemas(chunk_tables);
+        
+        // Combine multiple tables with unified schemas
+        arrow::Result<std::shared_ptr<arrow::Table>> result = arrow::ConcatenateTables(unified_tables);
+        
+        if (!result.ok()) {
+            throw std::runtime_error("Failed to concatenate tables: " + result.status().ToString());
+        }
+        
+        combined_table = result.ValueOrDie();
+    }
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+    
+    std::cout << "Processing complete. Total records: " << combined_table->num_rows() << std::endl;
+    std::cout << "Total processing time: " << duration.count() << " ms" << std::endl;
+    
+    // Clean up temporary directory
+    std::filesystem::remove_all(temp_dir);
+    
+    return combined_table;
+}
+
+/**
+ * @brief Create a unified schema from multiple Arrow tables
+ * @param tables The vector of Arrow tables to unify
+ * @return A vector of tables with unified schemas ready for concatenation
+ */
+std::vector<std::shared_ptr<arrow::Table>> FileDataLoader::unify_table_schemas(
+    const std::vector<std::shared_ptr<arrow::Table>>& tables) {
+    
+    if (tables.empty()) {
+        return {};
+    }
+    
+    if (tables.size() == 1) {
+        return tables;
+    }
+    
+    // Step 1: Collect all field names across all tables
+    std::unordered_set<std::string> all_field_names;
+    
+    for (const auto& table : tables) {
+        const auto& schema = table->schema();
+        for (int i = 0; i < schema->num_fields(); ++i) {
+            all_field_names.insert(schema->field(i)->name());
+        }
+    }
+    
+    // Step 2: Create a vector of field names in a consistent order
+    std::vector<std::string> ordered_field_names(all_field_names.begin(), all_field_names.end());
+    std::sort(ordered_field_names.begin(), ordered_field_names.end());
+    
+    // Ensure core fields come first
+    auto body_it = std::find(ordered_field_names.begin(), ordered_field_names.end(), "body");
+    if (body_it != ordered_field_names.end()) {
+        ordered_field_names.erase(body_it);
+        ordered_field_names.insert(ordered_field_names.begin(), "body");
+    }
+    
+    auto severity_it = std::find(ordered_field_names.begin(), ordered_field_names.end(), "severity");
+    if (severity_it != ordered_field_names.end()) {
+        ordered_field_names.erase(severity_it);
+        ordered_field_names.insert(ordered_field_names.begin() + 1, "severity");
+    }
+    
+    auto timestamp_it = std::find(ordered_field_names.begin(), ordered_field_names.end(), "timestamp");
+    if (timestamp_it != ordered_field_names.end()) {
+        ordered_field_names.erase(timestamp_it);
+        ordered_field_names.insert(ordered_field_names.begin() + 2, "timestamp");
+    }
+    
+    // Step 3: Create a unified schema
+    std::vector<std::shared_ptr<arrow::Field>> unified_fields;
+    
+    for (const auto& field_name : ordered_field_names) {
+        // Find a non-null field with this name in the tables
+        for (const auto& table : tables) {
+            if (table->schema()->GetFieldIndex(field_name) >= 0) {
+                unified_fields.push_back(table->schema()->GetFieldByName(field_name));
+                break;
+            }
+        }
+    }
+    
+    auto unified_schema = std::make_shared<arrow::Schema>(unified_fields);
+    
+    // Step 4: Project each table to the unified schema
+    std::vector<std::shared_ptr<arrow::Table>> unified_tables;
+    
+    for (const auto& table : tables) {
+        // Create projection indices
+        std::vector<int> projection_indices;
+        std::vector<std::string> missing_fields;
+        
+        for (const auto& field_name : ordered_field_names) {
+            auto idx = table->schema()->GetFieldIndex(field_name);
+            if (idx >= 0) {
+                projection_indices.push_back(idx);
+            } else {
+                missing_fields.push_back(field_name);
+            }
+        }
+        
+        // Select columns based on projection indices
+        std::vector<std::shared_ptr<arrow::ChunkedArray>> projected_columns;
+        
+        for (int idx : projection_indices) {
+            projected_columns.push_back(table->column(idx));
+        }
+        
+        // Add null columns for missing fields
+        for (const auto& field_name : missing_fields) {
+            // Get the field from the unified schema
+            auto field = unified_schema->GetFieldByName(field_name);
+            
+            // Create a null array of the correct type
+            std::shared_ptr<arrow::Array> null_array;
+            if (field->type()->id() == arrow::Type::STRING) {
+                arrow::StringBuilder builder;
+                for (int64_t i = 0; i < table->num_rows(); ++i) {
+                    auto status = builder.AppendNull();
+                    if (!status.ok()) {
+                        throw std::runtime_error("Failed to append null to string builder: " + status.ToString());
+                    }
+                }
+                auto result = builder.Finish();
+                if (!result.ok()) {
+                    throw std::runtime_error("Failed to finish string builder: " + result.status().ToString());
+                }
+                null_array = result.ValueOrDie();
+            } else if (field->type()->id() == arrow::Type::INT64) {
+                arrow::Int64Builder builder;
+                for (int64_t i = 0; i < table->num_rows(); ++i) {
+                    auto status = builder.AppendNull();
+                    if (!status.ok()) {
+                        throw std::runtime_error("Failed to append null to int64 builder: " + status.ToString());
+                    }
+                }
+                auto result = builder.Finish();
+                if (!result.ok()) {
+                    throw std::runtime_error("Failed to finish int64 builder: " + result.status().ToString());
+                }
+                null_array = result.ValueOrDie();
+            } else {
+                // Default to null array
+                null_array = std::make_shared<arrow::NullArray>(table->num_rows());
+            }
+            
+            projected_columns.push_back(std::make_shared<arrow::ChunkedArray>(std::vector<std::shared_ptr<arrow::Array>>{null_array}));
+        }
+        
+        // Create a new table with projected columns
+        auto projected_table = arrow::Table::Make(unified_schema, projected_columns);
+        unified_tables.push_back(projected_table);
+    }
+    
+    return unified_tables;
 }
 
 } // namespace logai 

@@ -61,8 +61,32 @@ public:
                                                   const std::string& value);
     arrow::Status write_to_parquet(std::shared_ptr<arrow::Table> table, const std::string& output_path);
 
+    /**
+     * @brief Create a unified schema from multiple Arrow tables
+     * @param tables The vector of Arrow tables to unify
+     * @return A vector of tables with unified schemas ready for concatenation
+     */
+    std::vector<std::shared_ptr<arrow::Table>> unify_table_schemas(
+        const std::vector<std::shared_ptr<arrow::Table>>& tables);
+
     // Process a single batch of log lines
     void process_batch(const LogBatch& batch, ProcessedBatch& result);
+    
+    /**
+     * @brief Process a large log file with automatic memory management and chunking
+     * 
+     * @param input_file The path to the input log file
+     * @param parser_type The type of parser to use (drain, json, csv, regex)
+     * @param memory_limit_mb Maximum memory limit in megabytes
+     * @param chunk_size Initial chunk size (number of lines per batch)
+     * @param force_chunking Force processing in chunks even if file is small
+     * @return std::shared_ptr<arrow::Table> The final Arrow table with parsed results
+     */
+    std::shared_ptr<arrow::Table> process_large_file(const std::string& input_file,
+                                                  const std::string& parser_type,
+                                                  size_t memory_limit_mb = 2000,
+                                                  size_t chunk_size = 10000,
+                                                  bool force_chunking = false);
 
 private:
     DataLoaderConfig config_;
@@ -72,6 +96,14 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<double> progress_{0.0};
     std::atomic<size_t> total_batches_{0};
+    
+    // Adaptive batch sizing parameters
+    std::atomic<size_t> current_batch_size_{100};  // Default batch size
+    std::atomic<size_t> max_batch_size_{1000};     // Maximum batch size
+    std::atomic<size_t> min_batch_size_{10};       // Minimum batch size
+    std::atomic<size_t> queue_high_watermark_{200}; // Queue size to trigger batch size reduction
+    std::atomic<size_t> queue_low_watermark_{10};   // Queue size to trigger batch size increase
+    std::atomic<bool> memory_pressure_{false};      // Flag for memory pressure detection
     
     // Multi-threading components
     ThreadSafeQueue<LogBatch> batch_queue_;
@@ -110,6 +142,12 @@ private:
     // Read file line by line with callback
     void read_file_line_by_line(const std::string& filepath, 
                                std::function<void(std::string_view)> callback);
+                               
+    // Memory monitoring functions
+    size_t get_current_memory_usage() const;
+    void adjust_batch_size(ThreadSafeQueue<LogBatch>& queue);
+    bool detect_memory_pressure() const;
+    void process_in_chunks(const std::string& filepath, size_t chunk_size, const std::string& output_dir);
 };
 
 } 
