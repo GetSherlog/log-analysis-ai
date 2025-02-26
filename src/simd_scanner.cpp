@@ -48,6 +48,10 @@ size_t SimdLogScanner::position() const {
     return position_;
 }
 
+size_t SimdLogScanner::length() const {
+    return length_;
+}
+
 std::string_view SimdLogScanner::getSubstring(size_t length) const {
     if (position_ + length > length_) {
         length = length_ - position_;

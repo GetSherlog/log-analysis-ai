@@ -116,12 +116,7 @@ std::vector<LogRecordObject> FileDataLoader::load_data() {
     std::vector<std::thread> workers;
     for (size_t i = 0; i < num_threads; i++) {
         workers.push_back(std::thread([this, &input_queue, &output_queue]() {
-            LogBatch batch;
-            while (input_queue.wait_and_pop(batch)) {
-                ProcessedBatch processed;
-                process_batch(batch, processed);
-                output_queue.push(std::move(processed));
-            }
+            worker_thread(input_queue, output_queue);
         }));
     }
     
@@ -158,50 +153,67 @@ std::unique_ptr<LogParser> FileDataLoader::create_parser() {
     }
 }
 
-void FileDataLoader::process_batch(const LogBatch& batch, ProcessedBatch& result) {
-    result.batch_id = batch.batch_id;
-    result.records.reserve(batch.lines.size());
-    
-    auto parser = create_parser();
-    
-    for (const auto& line : batch.lines) {
-        try {
-            if (line.empty()) continue;
-            
-            if (config_.log_type == "csv" || config_.log_type == "tsv") {
-                result.records.push_back(parser->parse_line(line));
-            } else if (config_.log_type == "json") {
-                result.records.push_back(parser->parse_line(line));
-            } else {
-                // Custom log format
-                result.records.push_back(parser->parse_line(line));
-            }
-        } catch (const std::exception& e) {
-            std::cerr << "Error processing line: " << e.what() << std::endl;
-        }
-    }
-}
-
-void FileDataLoader::producer_thread(MemoryMappedFile& file, ThreadSafeQueue<LogBatch>& input_queue, 
-                                    std::atomic<size_t>& total_batches) {
+void FileDataLoader::worker_thread(ThreadSafeQueue<LogBatch>& input_queue, 
+                                 ThreadSafeQueue<ProcessedBatch>& output_queue) {
     try {
-        if (config_.use_memory_mapping) {
-            read_file_memory_mapped(config_.file_path, [&](std::string_view line) {
-                LogBatch batch{total_batches++, {std::string(line)}};
-                input_queue.push(std::move(batch));
-            });
-        } else {
-            read_file_by_chunks(config_.file_path, [&](const std::string& line) {
-                LogBatch batch{total_batches++, {line}};
-                input_queue.push(std::move(batch));
-            });
+        // Create parser once per thread
+        auto parser = create_parser();
+        if (!parser) {
+            throw std::runtime_error("Failed to create parser in worker thread");
         }
+        
+        std::cout << "Worker thread started" << std::endl;
+        
+        while (true) {
+            LogBatch batch;
+            if (!input_queue.wait_and_pop(batch)) {
+                break; // Queue is done and empty
+            }
+            
+            // Process the batch
+            ProcessedBatch processed_batch;
+            processed_batch.id = batch.id;
+            processed_batch.records.reserve(batch.lines.size());
+            
+            size_t success_count = 0;
+            size_t error_count = 0;
+            
+            for (const auto& line : batch.lines) {
+                try {
+                    if (!line.empty()) {
+                        auto record = parser->parse_line(line);
+                        processed_batch.records.push_back(std::move(record));
+                        success_count++;
+                    }
+                } catch (const std::exception& e) {
+                    error_count++;
+                    if (error_count < 10) { // Limit error messages to avoid flooding logs
+                        std::cerr << "Error parsing line: " << e.what() << std::endl;
+                        if (line.length() < 200) { // Only print short lines to avoid flooding logs
+                            std::cerr << "Line content: " << line << std::endl;
+                        } else {
+                            std::cerr << "Line too long to display (" << line.length() << " chars)" << std::endl;
+                        }
+                    } else if (error_count == 10) {
+                        std::cerr << "Too many parsing errors, suppressing further messages..." << std::endl;
+                    }
+                }
+            }
+            
+            if (batch.id % 10 == 0 || error_count > 0) {
+                std::cout << "Processed batch " << batch.id 
+                          << ": " << success_count << " successes, " 
+                          << error_count << " errors" << std::endl;
+            }
+            
+            // Push the processed batch to the output queue
+            output_queue.push(std::move(processed_batch));
+        }
+        
+        std::cout << "Worker thread finished" << std::endl;
     } catch (const std::exception& e) {
-        std::cerr << "Error in producer thread: " << e.what() << std::endl;
+        std::cerr << "Error in worker thread: " << e.what() << std::endl;
     }
-    
-    // Signal that no more batches will be produced
-    input_queue.done();
 }
 
 void FileDataLoader::consumer_thread(size_t num_threads, ThreadSafeQueue<ProcessedBatch>& output_queue, 
@@ -230,6 +242,94 @@ void FileDataLoader::consumer_thread(size_t num_threads, ThreadSafeQueue<Process
     }
 }
 
+void FileDataLoader::producer_thread(MemoryMappedFile& file, ThreadSafeQueue<LogBatch>& input_queue, 
+                                    std::atomic<size_t>& total_batches) {
+    try {
+        if (config_.use_memory_mapping) {
+            // Use a vector to collect lines in batches
+            std::vector<std::string> batch_lines;
+            batch_lines.reserve(100); // Process 100 lines at a time
+            size_t batch_id = 0;
+            
+            read_file_memory_mapped(config_.file_path, [&](std::string_view line) {
+                try {
+                    // Check if the string_view is valid before creating a string from it
+                    if (line.data() && line.size() > 0 && line.size() < MAX_LINE_LENGTH) {
+                        // Create a safe copy of the string_view
+                        std::string line_copy;
+                        line_copy.reserve(line.size());
+                        line_copy.assign(line.data(), line.size());
+                        
+                        // Add to current batch
+                        batch_lines.push_back(std::move(line_copy));
+                        
+                        // If batch is full, push it to the queue
+                        if (batch_lines.size() >= 100) {
+                            LogBatch batch{batch_id++, std::move(batch_lines)};
+                            input_queue.push(std::move(batch));
+                            
+                            // Reset batch_lines for next batch
+                            batch_lines = std::vector<std::string>();
+                            batch_lines.reserve(100);
+                            
+                            // Update total batches
+                            total_batches.store(batch_id);
+                        }
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Error creating batch: " << e.what() << std::endl;
+                }
+            });
+            
+            // Push any remaining lines
+            if (!batch_lines.empty()) {
+                LogBatch batch{batch_id++, std::move(batch_lines)};
+                input_queue.push(std::move(batch));
+                total_batches.store(batch_id);
+            }
+        } else {
+            // Use a vector to collect lines in batches
+            std::vector<std::string> batch_lines;
+            batch_lines.reserve(100); // Process 100 lines at a time
+            size_t batch_id = 0;
+            
+            read_file_by_chunks(config_.file_path, [&](const std::string& line) {
+                try {
+                    // Add to current batch
+                    batch_lines.push_back(line);
+                    
+                    // If batch is full, push it to the queue
+                    if (batch_lines.size() >= 100) {
+                        LogBatch batch{batch_id++, std::move(batch_lines)};
+                        input_queue.push(std::move(batch));
+                        
+                        // Reset batch_lines for next batch
+                        batch_lines = std::vector<std::string>();
+                        batch_lines.reserve(100);
+                        
+                        // Update total batches
+                        total_batches.store(batch_id);
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Error creating batch: " << e.what() << std::endl;
+                }
+            });
+            
+            // Push any remaining lines
+            if (!batch_lines.empty()) {
+                LogBatch batch{batch_id++, std::move(batch_lines)};
+                input_queue.push(std::move(batch));
+                total_batches.store(batch_id);
+            }
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "Error in producer thread: " << e.what() << std::endl;
+    }
+    
+    // Signal that no more batches will be produced
+    input_queue.done();
+}
+
 void FileDataLoader::read_file_by_chunks(const std::string& filepath, 
                                        const std::function<void(const std::string&)>& callback) {
     std::ifstream file(filepath);
@@ -245,26 +345,77 @@ void FileDataLoader::read_file_by_chunks(const std::string& filepath,
     }
 }
 
-void FileDataLoader::read_file_memory_mapped(const std::string& filepath,
-                                           const std::function<void(std::string_view)>& callback) {
-    MemoryMappedFile file;
-    if (!file.open(filepath)) {
-        throw std::runtime_error("Failed to open file: " + filepath);
-    }
-    
-    auto scanner = file.getScanner();
-    if (!scanner) {
-        throw std::runtime_error("Failed to create scanner for file: " + filepath);
-    }
-    
-    while (!scanner->atEnd()) {
-        size_t newline_pos = scanner->findNewline();
-        std::string_view line = scanner->getSubstring(newline_pos - scanner->position());
-        scanner->advance(newline_pos + 1);
-        
-        if (!line.empty()) {
-            callback(line);
+void FileDataLoader::read_file_memory_mapped(const std::string& file_path, 
+                                           std::function<void(std::string_view)> line_processor) {
+    try {
+        // Open the file
+        int fd = open(file_path.c_str(), O_RDONLY);
+        if (fd == -1) {
+            throw std::runtime_error("Failed to open file: " + file_path + ", error: " + strerror(errno));
         }
+
+        // Get file size
+        struct stat sb;
+        if (fstat(fd, &sb) == -1) {
+            close(fd);
+            throw std::runtime_error("Failed to get file size: " + file_path + ", error: " + strerror(errno));
+        }
+
+        // Map the file into memory
+        void* mapped = mmap(nullptr, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (mapped == MAP_FAILED) {
+            close(fd);
+            throw std::runtime_error("Failed to map file: " + file_path + ", error: " + strerror(errno));
+        }
+
+        // Process the file line by line
+        const char* data = static_cast<const char*>(mapped);
+        const char* end = data + sb.st_size;
+        const char* line_start = data;
+
+        std::cout << "Processing memory mapped file of size: " << sb.st_size << " bytes" << std::endl;
+
+        // Process each line
+        size_t line_count = 0;
+        while (line_start < end) {
+            // Find the end of the current line
+            const char* line_end = line_start;
+            while (line_end < end && *line_end != '\n') {
+                ++line_end;
+            }
+
+            // Create a string_view for the current line
+            size_t line_length = line_end - line_start;
+            if (line_length > 0 && line_length < MAX_LINE_LENGTH) {
+                try {
+                    std::string_view line(line_start, line_length);
+                    line_processor(line);
+                    line_count++;
+                    
+                    if (line_count % 10000 == 0) {
+                        std::cout << "Processed " << line_count << " lines" << std::endl;
+                    }
+                } catch (const std::exception& e) {
+                    std::cerr << "Error processing line: " << e.what() << std::endl;
+                }
+            } else if (line_length >= MAX_LINE_LENGTH) {
+                std::cerr << "Skipping line " << line_count << ": Line too long (" << line_length << " bytes)" << std::endl;
+            }
+
+            // Move to the next line
+            line_start = (line_end < end) ? line_end + 1 : end;
+        }
+
+        std::cout << "Finished processing " << line_count << " lines" << std::endl;
+
+        // Unmap and close the file
+        if (munmap(mapped, sb.st_size) == -1) {
+            std::cerr << "Warning: Failed to unmap file: " << file_path << ", error: " << strerror(errno) << std::endl;
+        }
+        close(fd);
+    } catch (const std::exception& e) {
+        std::cerr << "Error in read_file_memory_mapped: " << e.what() << std::endl;
+        throw;
     }
 }
 

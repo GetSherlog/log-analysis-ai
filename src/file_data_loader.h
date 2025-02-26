@@ -29,15 +29,15 @@ namespace logai {
  * @brief Batch of log lines for parallel processing
  */
 struct LogBatch {
-    size_t batch_id;
-    std::vector<std::string_view> lines;
+    size_t id;
+    std::vector<std::string> lines;
 };
 
 /**
  * @brief Processed batch of log data
  */
 struct ProcessedBatch {
-    size_t batch_id;
+    size_t id;
     std::vector<LogRecordObject> records;
 };
 
@@ -55,6 +55,10 @@ public:
     // New Arrow-based operations
     std::shared_ptr<arrow::Table> log_to_dataframe(const std::string& filepath, const std::string& format);
     std::shared_ptr<arrow::Table> filter_dataframe(std::shared_ptr<arrow::Table> table, const std::vector<std::string>& dimensions);
+    std::shared_ptr<arrow::Table> filter_dataframe(std::shared_ptr<arrow::Table> table, 
+                                                  const std::string& column, 
+                                                  const std::string& op, 
+                                                  const std::string& value);
     arrow::Status write_to_parquet(std::shared_ptr<arrow::Table> table, const std::string& output_path);
 
     // Process a single batch of log lines
@@ -92,15 +96,14 @@ private:
     
     void read_file_memory_mapped(
         const std::string& filepath,
-        const std::function<void(std::string_view)>& callback);
+        std::function<void(std::string_view)> callback);
     
     void reader_thread(const std::string& filepath);
-    void worker_thread(int thread_id, const std::string& log_format = "");
+    void worker_thread(ThreadSafeQueue<LogBatch>& input_queue, ThreadSafeQueue<ProcessedBatch>& output_queue);
     void collector_thread();
     
     ProcessedBatch process_batch(const LogBatch& batch, const std::string& log_format = "");
     std::unique_ptr<LogParser> create_parser();
-    void process_batch(const LogBatch& batch, ProcessedBatch& result);
     void producer_thread(MemoryMappedFile& file, ThreadSafeQueue<LogBatch>& input_queue, std::atomic<size_t>& total_batches);
     void consumer_thread(size_t num_threads, ThreadSafeQueue<ProcessedBatch>& output_queue, std::vector<LogRecordObject>& results, std::atomic<size_t>& total_batches);
 

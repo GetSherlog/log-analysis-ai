@@ -13,6 +13,7 @@ public:
     size_t findNewline() const;
     void advance(size_t offset);
     size_t position() const;
+    size_t length() const;
     std::string_view getSubstring(size_t length) const;
     std::string_view getSubstringTo(char delimiter) const;
     bool atEnd() const;
