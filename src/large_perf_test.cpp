@@ -26,6 +26,7 @@ void print_usage(const char* program_name) {
               << "  --parser TYPE         Parser type (drain, json, csv, regex)\n"
               << "  --memory-limit MB     Memory limit in MB\n"
               << "  --chunk-size LINES    Initial chunk size (lines per batch)\n"
+              << "  --enable-preprocessing Enable log preprocessing\n"
               << "  --help                Show this help message\n";
 }
 
@@ -36,6 +37,7 @@ int main(int argc, char* argv[]) {
     std::string parser_type = "drain";
     size_t memory_limit_mb = 3000; // 3GB default
     size_t chunk_size = 10000;     // 10K lines default
+    bool enable_preprocessing = false; // Preprocessing disabled by default
 
     // Parse command line arguments
     for (int i = 1; i < argc; ++i) {
@@ -53,6 +55,8 @@ int main(int argc, char* argv[]) {
             memory_limit_mb = std::stoul(argv[++i]);
         } else if (arg == "--chunk-size" && i + 1 < argc) {
             chunk_size = std::stoul(argv[++i]);
+        } else if (arg == "--enable-preprocessing") {
+            enable_preprocessing = true;
         }
     }
 
@@ -81,6 +85,25 @@ int main(int argc, char* argv[]) {
         config.log_type = parser_type;
         config.num_threads = 8; // Adjust based on available CPU cores
         config.use_memory_mapping = true;
+        
+        // Configure preprocessing if enabled
+        if (enable_preprocessing) {
+            config.enable_preprocessing = true;
+            // Set up common delimiters for log preprocessing
+            config.custom_delimiters_regex = {
+                { R"(\[)", " [ " },
+                { R"(\])", " ] " },
+                { R"(\()", " ( " },
+                { R"(\))", " ) " }
+            };
+            // Set up common replacements for log preprocessing
+            config.custom_replace_list = {
+                { R"(\b\d+\.\d+\.\d+\.\d+\b)", "<IP_ADDRESS>" },
+                { R"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", "<UUID>" },
+                { R"(\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?\b)", "<TIMESTAMP>" }
+            };
+            std::cout << "Preprocessing enabled with standard patterns" << std::endl;
+        }
         
         std::cout << "Processing log file: " << input_file << std::endl;
         std::cout << "Using parser: " << parser_type << std::endl;

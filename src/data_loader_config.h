@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <optional>
 #include <thread>
+#include <tuple>
 
 namespace logai {
 
@@ -21,5 +22,10 @@ struct DataLoaderConfig {
     size_t batch_size = 10000;
     bool use_memory_mapping = true;
     bool use_simd = true;
+    
+    // Preprocessor configuration
+    bool enable_preprocessing = false;
+    std::unordered_map<std::string, std::string> custom_delimiters_regex;
+    std::vector<std::tuple<std::string, std::string>> custom_replace_list;
 };
 } 

@@ -16,6 +16,7 @@
 #include "memory_mapped_file.h"
 #include "thread_safe_queue.h"
 #include "log_parser.h"
+#include "preprocessor.h"
 
 // Forward declaration for Arrow Table
 namespace arrow {
@@ -62,6 +63,25 @@ public:
     arrow::Status write_to_parquet(std::shared_ptr<arrow::Table> table, const std::string& output_path);
 
     /**
+     * @brief Apply preprocessing to a batch of log lines
+     * 
+     * @param log_lines The log lines to preprocess
+     * @return Preprocessed log lines
+     */
+    std::vector<std::string> preprocess_logs(const std::vector<std::string>& log_lines);
+
+    /**
+     * @brief Extract attributes from preprocessed logs using regex patterns
+     * 
+     * @param log_lines The preprocessed log lines
+     * @param patterns Map of attribute names to regex patterns
+     * @return Table with extracted attributes
+     */
+    std::shared_ptr<arrow::Table> extract_attributes(
+        const std::vector<std::string>& log_lines,
+        const std::unordered_map<std::string, std::string>& patterns);
+
+    /**
      * @brief Create a unified schema from multiple Arrow tables
      * @param tables The vector of Arrow tables to unify
      * @return A vector of tables with unified schemas ready for concatenation
@@ -96,6 +116,9 @@ private:
     std::atomic<bool> running_{false};
     std::atomic<double> progress_{0.0};
     std::atomic<size_t> total_batches_{0};
+    
+    // Preprocessor (created on demand only if enabled)
+    std::unique_ptr<Preprocessor> preprocessor_;
     
     // Adaptive batch sizing parameters
     std::atomic<size_t> current_batch_size_{100};  // Default batch size
@@ -148,6 +171,9 @@ private:
     void adjust_batch_size(ThreadSafeQueue<LogBatch>& queue);
     bool detect_memory_pressure() const;
     void process_in_chunks(const std::string& filepath, size_t chunk_size, const std::string& output_dir);
+    
+    // Initialize preprocessor if needed
+    void init_preprocessor();
 };
 
 } 

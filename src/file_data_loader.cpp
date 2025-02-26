@@ -31,6 +31,7 @@
 #include <arrow/compute/expression.h>
 #include <parquet/arrow/writer.h>
 #include <parquet/exception.h>
+#include "preprocessor.h"
 
 #include <algorithm>
 #include <chrono>
@@ -1171,6 +1172,163 @@ std::vector<std::shared_ptr<arrow::Table>> FileDataLoader::unify_table_schemas(
     }
     
     return unified_tables;
+}
+
+void FileDataLoader::init_preprocessor() {
+    if (config_.enable_preprocessing && !preprocessor_) {
+        PreprocessorConfig preprocessor_config(
+            config_.custom_delimiters_regex,
+            config_.custom_replace_list
+        );
+        preprocessor_ = std::make_unique<Preprocessor>(preprocessor_config);
+    }
+}
+
+std::vector<std::string> FileDataLoader::preprocess_logs(const std::vector<std::string>& log_lines) {
+    if (!config_.enable_preprocessing || log_lines.empty()) {
+        return log_lines;  // Return original lines if preprocessing is disabled
+    }
+    
+    // Initialize preprocessor if not already done
+    init_preprocessor();
+    
+    // Apply preprocessing
+    auto [cleaned_logs, extracted_terms] = preprocessor_->clean_log_batch(log_lines);
+    
+    // TODO: Store or process extracted terms if needed
+    
+    return cleaned_logs;
+}
+
+std::shared_ptr<arrow::Table> FileDataLoader::extract_attributes(
+    const std::vector<std::string>& log_lines,
+    const std::unordered_map<std::string, std::string>& patterns) {
+    
+    if (log_lines.empty() || patterns.empty()) {
+        return nullptr;
+    }
+    
+    // Create schema
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    fields.push_back(arrow::field("log_line", arrow::utf8()));
+    
+    for (const auto& [name, _] : patterns) {
+        fields.push_back(arrow::field(name, arrow::utf8()));
+    }
+    
+    auto schema = arrow::schema(fields);
+    
+    // Prepare builders for each column
+    arrow::StringBuilder log_line_builder;
+    std::unordered_map<std::string, std::unique_ptr<arrow::StringBuilder>> attribute_builders;
+    
+    for (const auto& [name, _] : patterns) {
+        attribute_builders[name] = std::make_unique<arrow::StringBuilder>();
+    }
+    
+    // Reserve capacity for all builders
+    auto status = log_line_builder.Reserve(log_lines.size());
+    if (!status.ok()) {
+        return nullptr;
+    }
+    
+    for (auto& [_, builder] : attribute_builders) {
+        status = builder->Reserve(log_lines.size());
+        if (!status.ok()) {
+            return nullptr;
+        }
+    }
+    
+    // Process each log line
+    for (const auto& line : log_lines) {
+        // Add the log line to the first column
+        status = log_line_builder.Append(line);
+        if (!status.ok()) {
+            return nullptr;
+        }
+        
+        // Extract attributes using regex patterns
+        for (const auto& [name, pattern] : patterns) {
+            std::smatch match;
+            std::string value;
+            
+            try {
+                std::regex regex_pattern(pattern);
+                if (std::regex_search(line, match, regex_pattern) && match.size() > 0) {
+                    value = match.str(match.size() > 1 ? 1 : 0);  // Use first capture group if available
+                }
+            } catch (const std::regex_error& e) {
+                std::cerr << "Invalid regex pattern: " << pattern << " - " << e.what() << std::endl;
+            }
+            
+            status = attribute_builders[name]->Append(value);
+            if (!status.ok()) {
+                return nullptr;
+            }
+        }
+    }
+    
+    // Finalize arrays
+    std::shared_ptr<arrow::Array> log_line_array;
+    status = log_line_builder.Finish(&log_line_array);
+    if (!status.ok()) {
+        return nullptr;
+    }
+    
+    std::vector<std::shared_ptr<arrow::Array>> arrays;
+    arrays.push_back(log_line_array);
+    
+    for (const auto& [name, _] : patterns) {
+        std::shared_ptr<arrow::Array> array;
+        status = attribute_builders[name]->Finish(&array);
+        if (!status.ok()) {
+            return nullptr;
+        }
+        arrays.push_back(array);
+    }
+    
+    // Create table
+    return arrow::Table::Make(schema, arrays);
+}
+
+// Modify the process_batch method to include preprocessing
+ProcessedBatch FileDataLoader::process_batch(const LogBatch& batch, const std::string& log_format) {
+    ProcessedBatch result;
+    result.id = batch.id;
+    result.records.reserve(batch.lines.size());
+    
+    // Apply preprocessing if enabled
+    std::vector<std::string> preprocessed_lines;
+    if (config_.enable_preprocessing) {
+        preprocessed_lines = preprocess_logs(batch.lines);
+    } else {
+        preprocessed_lines = batch.lines;
+    }
+    
+    // Create parser based on configuration
+    auto parser = create_parser();
+    
+    // Parse each line
+    for (const auto& line : preprocessed_lines) {
+        try {
+            auto record = parser->parse_line(line);
+            
+            // Add timestamp if it's not already set and if inference is enabled
+            if (!record.timestamp && config_.infer_datetime) {
+                if (preprocessor_) {
+                    record.timestamp = preprocessor_->identify_timestamps(record);
+                }
+            }
+            
+            result.records.push_back(std::move(record));
+            processed_lines_++;
+        } catch (const std::exception& e) {
+            // Log error and continue
+            failed_lines_++;
+        }
+    }
+    
+    return result;
 }
 
 } // namespace logai 
