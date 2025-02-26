@@ -40,6 +40,12 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install abseil-cpp
+RUN apt-get update && apt-get install -y \
+    libabsl-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Show information about the Arrow installation
 RUN echo "Arrow headers location:" && \
     find /usr/include -name "arrow" -type d | xargs ls -la && \
