@@ -81,17 +81,17 @@ We provide several scripts to test the LogBERT implementation:
 
 1. **Basic Functionality Test**
 ```bash
-./run-logbert-test.sh
+./scripts/run-logbert-test.sh
 ```
 
 2. **Comprehensive Unit Tests**
 ```bash
-./run-logbert-unit-tests.sh
+./scripts/run-logbert-unit-tests.sh
 ```
 
 3. **Integration with BERT Models**
 ```bash
-./run-logbert-with-model.sh
+./scripts/run-logbert-with-model.sh
 ```
 
 The integration test script:
@@ -185,7 +185,7 @@ A performance test is included to benchmark the library's log parsing and Parque
 
 1. To run the performance test:
    ```bash
-   ./run-perf-test.sh
+   ./scripts/run-perf-test.sh
    ```
 
 2. The test will:
@@ -201,7 +201,7 @@ A performance test is included to benchmark the library's log parsing and Parque
 To test the LogBERT vectorizer implementation:
 
 ```bash
-./run-logbert-test.sh
+./scripts/run-logbert-test.sh
 ```
 
 This will build and run the LogBERT test program, which demonstrates:

@@ -16,7 +16,7 @@ This document explains how to run the performance test for the LogAI-CPP library
 The simplest way to run the performance test is to use the provided script:
 
 ```bash
-./run-perf-test.sh
+./scripts/run-perf-test.sh
 ```
 
 This script will:

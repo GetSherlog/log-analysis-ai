@@ -97,7 +97,7 @@ auto attributes_table = data_loader.extract_attributes(log_lines, patterns);
 Use the provided test script to run the preprocessor tests:
 
 ```bash
-./run-preprocessor-test.sh
+./scripts/run-preprocessor-test.sh
 ```
 
 This script creates a test log file if none exists and runs the preprocessor test application. 

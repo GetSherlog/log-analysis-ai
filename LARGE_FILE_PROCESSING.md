@@ -21,7 +21,7 @@ The LogAI-CPP library now includes enhanced capabilities for processing large lo
 The simplest way to utilize these improvements is with the provided `run-large-perf-test.sh` script:
 
 ```bash
-./run-large-perf-test.sh --parser drain --input your_large_logfile.log --memory 4g
+./scripts/run-large-perf-test.sh --parser drain --input your_large_logfile.log --memory 4g
 ```
 
 Options:

@@ -155,13 +155,13 @@ Run the included test programs to evaluate the vectorizer:
 
 ```bash
 # Run the basic LogBERT test
-./run-logbert-test.sh
+./scripts/run-logbert-test.sh
 
 # Run comprehensive unit tests
-./run-logbert-unit-tests.sh
+./scripts/run-logbert-unit-tests.sh
 
 # Test integration with BERT models
-./run-logbert-with-model.sh
+./scripts/run-logbert-with-model.sh
 ```
 
 These scripts will:
