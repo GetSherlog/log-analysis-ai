@@ -8,6 +8,8 @@ list(FILTER SOURCES EXCLUDE REGEX "neon_simd_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "feature_extractor_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "logbert_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "logbert_unit_test\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "dbscan_test\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "dbscan_kdtree_test\\.cpp$")
 file(GLOB HEADERS "*.h")
 
 # Create library
@@ -85,6 +87,26 @@ target_link_libraries(neon_simd_test
     PRIVATE absl::strings
 )
 
+# Add DBSCAN test executable
+add_executable(dbscan_test dbscan_test.cpp)
+target_link_libraries(dbscan_test 
+    PRIVATE logai
+    PRIVATE nlohmann_json::nlohmann_json
+    PRIVATE PkgConfig::ARROW
+    PRIVATE PkgConfig::PARQUET
+    PRIVATE absl::strings
+)
+
+# Add KD-tree optimized DBSCAN test executable
+add_executable(dbscan_kdtree_test dbscan_kdtree_test.cpp)
+target_link_libraries(dbscan_kdtree_test 
+    PRIVATE logai
+    PRIVATE nlohmann_json::nlohmann_json
+    PRIVATE PkgConfig::ARROW
+    PRIVATE PkgConfig::PARQUET
+    PRIVATE absl::strings
+)
+
 # Add LogBERT test executable
 add_executable(logbert_test logbert_test.cpp)
 target_link_libraries(logbert_test 
@@ -153,7 +175,7 @@ else()
 endif() # Fixed trailing endif
 
 # Install
-install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test logbert_test logbert_unit_test
+install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)

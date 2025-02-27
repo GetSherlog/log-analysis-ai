@@ -163,6 +163,15 @@ public:
      */
     int get_pad_token_id() const;
 
+    /**
+     * @brief Normalize text according to the tokenizer's settings
+     * 
+     * @param text Text to normalize
+     * @param is_uncased Whether to convert to lowercase
+     * @return std::string Normalized text
+     */
+    std::string normalize(const std::string& text, bool is_uncased = true);
+
 private:
     std::unordered_map<std::string, int> token_to_id_;
     std::unordered_map<int, std::string> id_to_token_;
@@ -173,7 +182,6 @@ private:
 
     // Private helper methods
     std::vector<std::string> pre_tokenize(const std::string& text);
-    std::string normalize(const std::string& text, bool is_uncased = true);
     std::vector<std::string> word_piece_tokenize(const std::string& word);
 };
 
