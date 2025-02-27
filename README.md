@@ -73,7 +73,7 @@ for (const auto& [token_ids, attention_mask] : results) {
 }
 ```
 
-For more detailed information, see [LOGBERT.md](LOGBERT.md)
+For more detailed information, see [LOGBERT.md](docs/LOGBERT.md)
 
 ### Testing the LogBERT Implementation
 
@@ -194,7 +194,7 @@ A performance test is included to benchmark the library's log parsing and Parque
    - Export it to Parquet
    - Measure and report timing for each operation
 
-3. For detailed performance test documentation, see [PERFORMANCE_TEST.md](PERFORMANCE_TEST.md)
+3. For detailed performance test documentation, see [PERFORMANCE_TEST.md](docs/PERFORMANCE_TEST.md)
 
 ## LogBERT Testing
 
