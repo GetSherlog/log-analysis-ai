@@ -53,11 +53,46 @@
             font-weight: bold;
             color: #e74c3c;
         }
+        .cta-button {
+            display: inline-block;
+            background-color: #2ecc71;
+            color: white;
+            font-weight: bold;
+            padding: 12px 24px;
+            border-radius: 4px;
+            margin: 20px 0;
+            text-align: center;
+            transition: background-color 0.3s;
+        }
+        .cta-button:hover {
+            background-color: #27ae60;
+            text-decoration: none;
+        }
+        .tool-card {
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+            background-color: #f9f9f9;
+        }
+        .tool-card h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .tool-card p {
+            margin-bottom: 15px;
+        }
     </style>
 </head>
 <body>
     <h1>LogAI-CPP Web Server</h1>
     <p>Welcome to the LogAI-CPP Web Server. This server provides a high-performance HTTP API to interact with the LogAI-CPP library functionality.</p>
+    
+    <div class="tool-card">
+        <h3>⚡ Interactive Anomaly Detection</h3>
+        <p>Use our interactive web interface to upload log files, analyze them, and detect anomalies without writing any code.</p>
+        <a href="/anomaly_detection.html" class="cta-button">Open Anomaly Detection Tool</a>
+    </div>
     
     <h2>API Endpoints</h2>
     
@@ -97,6 +132,10 @@
     
     <div class="endpoint">
         <p><span class="method">POST</span> <code>/api/anomalies/dbscan</code> - Cluster log events using DBSCAN</p>
+    </div>
+    
+    <div class="endpoint">
+        <p><span class="method">POST</span> <code>/api/upload</code> - Upload log files for processing</p>
     </div>
     
     <h2>API Documentation</h2>

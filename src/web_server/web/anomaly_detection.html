@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogAI-CPP Anomaly Detection</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #2c3e50;
+        }
+        h1 {
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .card {
+            background-color: #fff;
+            border-radius: 6px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+            padding: 20px;
+            border-left: 4px solid #3498db;
+        }
+        .btn {
+            background-color: #3498db;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .btn:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .btn-danger {
+            background-color: #e74c3c;
+        }
+        .btn-danger:hover {
+            background-color: #c0392b;
+        }
+        input, select, textarea {
+            width: 100%;
+            padding: 8px;
+            margin: 8px 0;
+            display: inline-block;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        textarea {
+            height: 150px;
+            font-family: monospace;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            font-weight: bold;
+        }
+        .progress-container {
+            width: 100%;
+            background-color: #f1f1f1;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .progress-bar {
+            height: 20px;
+            background-color: #4CAF50;
+            border-radius: 4px;
+            width: 0%;
+            transition: width 0.3s;
+            text-align: center;
+            line-height: 20px;
+            color: white;
+        }
+        .hidden {
+            display: none;
+        }
+        .alert {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .tab {
+            overflow: hidden;
+            border: 1px solid #ccc;
+            background-color: #f1f1f1;
+            border-radius: 4px 4px 0 0;
+        }
+        .tab button {
+            background-color: inherit;
+            float: left;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 14px 16px;
+            transition: 0.3s;
+            font-size: 16px;
+        }
+        .tab button:hover {
+            background-color: #ddd;
+        }
+        .tab button.active {
+            background-color: #3498db;
+            color: white;
+        }
+        .tabcontent {
+            display: none;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            animation: fadeEffect 1s;
+        }
+        @keyframes fadeEffect {
+            from {opacity: 0;}
+            to {opacity: 1;}
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+        th {
+            background-color: #3498db;
+            color: white;
+        }
+        #visualization {
+            margin-top: 20px;
+            height: 400px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>LogAI-CPP Anomaly Detection</h1>
+    
+    <div class="card">
+        <h2>Upload Log File</h2>
+        <div class="form-group">
+            <label for="fileInput">Select a log file to upload:</label>
+            <input type="file" id="fileInput" accept=".log,.txt,.csv,.json">
+        </div>
+        <div class="form-group">
+            <label for="parserType">Log Parser Type:</label>
+            <select id="parserType">
+                <option value="auto">Auto-detect</option>
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+                <option value="regex">Regex</option>
+            </select>
+        </div>
+        
+        <div id="csvOptions" class="hidden">
+            <div class="form-group">
+                <label for="delimiter">Delimiter:</label>
+                <input type="text" id="delimiter" placeholder="," value=",">
+            </div>
+            <div class="form-group">
+                <label for="hasHeader">
+                    <input type="checkbox" id="hasHeader" checked>
+                    Has Header
+                </label>
+            </div>
+        </div>
+        
+        <div id="regexOptions" class="hidden">
+            <div class="form-group">
+                <label for="pattern">Regex Pattern:</label>
+                <input type="text" id="pattern" placeholder="^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) (.*)$">
+            </div>
+        </div>
+        
+        <button id="uploadBtn" class="btn">Parse Log File</button>
+    </div>
+    
+    <div id="parseResults" class="card hidden">
+        <h2>Log Parsing Results</h2>
+        <div id="summaryStats"></div>
+        
+        <div class="tab">
+            <button class="tablinks active" onclick="openTab(event, 'logSamples')">Log Samples</button>
+            <button class="tablinks" onclick="openTab(event, 'templates')">Log Templates</button>
+        </div>
+        
+        <div id="logSamples" class="tabcontent" style="display: block;">
+            <table id="logSamplesTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Timestamp</th>
+                        <th>Message</th>
+                    </tr>
+                </thead>
+                <tbody id="logSamplesBody"></tbody>
+            </table>
+        </div>
+        
+        <div id="templates" class="tabcontent">
+            <table id="templatesTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Template</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody id="templatesBody"></tbody>
+            </table>
+        </div>
+        
+        <div class="form-group" style="margin-top: 20px;">
+            <button id="detectAnomaliesBtn" class="btn">Detect Anomalies</button>
+            <button id="clearBtn" class="btn btn-danger">Clear</button>
+        </div>
+    </div>
+    
+    <div id="anomalyOptions" class="card hidden">
+        <h2>Anomaly Detection Options</h2>
+        
+        <div class="form-group">
+            <label for="method">Detection Method:</label>
+            <select id="method">
+                <option value="ocsvm">One-Class SVM</option>
+                <option value="dbscan">DBSCAN Clustering</option>
+            </select>
+        </div>
+        
+        <div id="ocsvmOptions">
+            <div class="form-group">
+                <label for="kernel">Kernel:</label>
+                <select id="kernel">
+                    <option value="rbf">RBF</option>
+                    <option value="linear">Linear</option>
+                    <option value="poly">Polynomial</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="nu">Nu (0-1):</label>
+                <input type="number" id="nu" min="0.01" max="0.99" step="0.01" value="0.1">
+            </div>
+            <div class="form-group">
+                <label for="gamma">Gamma:</label>
+                <input type="number" id="gamma" min="0.001" step="0.001" value="0.1">
+            </div>
+        </div>
+        
+        <div id="dbscanOptions" class="hidden">
+            <div class="form-group">
+                <label for="eps">Epsilon:</label>
+                <input type="number" id="eps" min="0.01" step="0.01" value="0.5">
+            </div>
+            <div class="form-group">
+                <label for="minSamples">Min Samples:</label>
+                <input type="number" id="minSamples" min="1" step="1" value="5">
+            </div>
+            <div class="form-group">
+                <label for="useKdTree">
+                    <input type="checkbox" id="useKdTree">
+                    Use KD-Tree (faster for large datasets)
+                </label>
+            </div>
+        </div>
+        
+        <button id="runDetectionBtn" class="btn">Run Detection</button>
+        <button id="backBtn" class="btn">Back</button>
+    </div>
+    
+    <div id="results" class="card hidden">
+        <h2>Anomaly Detection Results</h2>
+        
+        <div id="resultsSummary"></div>
+        
+        <div class="tab">
+            <button class="tablinks active" onclick="openTab(event, 'anomalyLogs')">Anomalous Logs</button>
+            <button class="tablinks" onclick="openTab(event, 'visualization')">Visualization</button>
+        </div>
+        
+        <div id="anomalyLogs" class="tabcontent" style="display: block;">
+            <table id="anomalyTable">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Timestamp</th>
+                        <th>Message</th>
+                        <th>Anomaly Score</th>
+                    </tr>
+                </thead>
+                <tbody id="anomalyBody"></tbody>
+            </table>
+        </div>
+        
+        <div id="visualization" class="tabcontent">
+            <div id="chartContainer"></div>
+        </div>
+        
+        <div class="form-group" style="margin-top: 20px;">
+            <button id="newAnalysisBtn" class="btn">New Analysis</button>
+            <button id="downloadResultsBtn" class="btn">Download Results</button>
+        </div>
+    </div>
+    
+    <div id="progressModal" class="hidden">
+        <div class="card">
+            <h2 id="progressTitle">Processing...</h2>
+            <div class="progress-container">
+                <div id="progressBar" class="progress-bar">0%</div>
+            </div>
+            <p id="progressMessage">Please wait while we process your request...</p>
+        </div>
+    </div>
+    
+    <div id="alertContainer"></div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
+    <script>
+        // DOM elements
+        const fileInput = document.getElementById('fileInput');
+        const parserType = document.getElementById('parserType');
+        const csvOptions = document.getElementById('csvOptions');
+        const regexOptions = document.getElementById('regexOptions');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const parseResults = document.getElementById('parseResults');
+        const logSamplesBody = document.getElementById('logSamplesBody');
+        const templatesBody = document.getElementById('templatesBody');
+        const summaryStats = document.getElementById('summaryStats');
+        const detectAnomaliesBtn = document.getElementById('detectAnomaliesBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const anomalyOptions = document.getElementById('anomalyOptions');
+        const method = document.getElementById('method');
+        const ocsvmOptions = document.getElementById('ocsvmOptions');
+        const dbscanOptions = document.getElementById('dbscanOptions');
+        const runDetectionBtn = document.getElementById('runDetectionBtn');
+        const backBtn = document.getElementById('backBtn');
+        const results = document.getElementById('results');
+        const resultsSummary = document.getElementById('resultsSummary');
+        const anomalyBody = document.getElementById('anomalyBody');
+        const chartContainer = document.getElementById('chartContainer');
+        const newAnalysisBtn = document.getElementById('newAnalysisBtn');
+        const downloadResultsBtn = document.getElementById('downloadResultsBtn');
+        const progressModal = document.getElementById('progressModal');
+        const progressBar = document.getElementById('progressBar');
+        const progressMessage = document.getElementById('progressMessage');
+        const progressTitle = document.getElementById('progressTitle');
+        const alertContainer = document.getElementById('alertContainer');
+        
+        // State variables
+        let logRecords = [];
+        let logTemplates = [];
+        let features = [];
+        let anomalies = [];
+        let chart = null;
+        
+        // Event listeners
+        parserType.addEventListener('change', toggleParserOptions);
+        uploadBtn.addEventListener('click', parseLogFile);
+        detectAnomaliesBtn.addEventListener('click', showAnomalyOptions);
+        clearBtn.addEventListener('click', clearParseResults);
+        method.addEventListener('change', toggleMethodOptions);
+        runDetectionBtn.addEventListener('click', runAnomalyDetection);
+        backBtn.addEventListener('click', backToParseResults);
+        newAnalysisBtn.addEventListener('click', startNewAnalysis);
+        downloadResultsBtn.addEventListener('click', downloadResults);
+        
+        // Initialize page
+        function init() {
+            toggleParserOptions();
+            toggleMethodOptions();
+        }
+        
+        // Show/hide parser-specific options based on selection
+        function toggleParserOptions() {
+            const selectedParser = parserType.value;
+            csvOptions.classList.add('hidden');
+            regexOptions.classList.add('hidden');
+            
+            if (selectedParser === 'csv') {
+                csvOptions.classList.remove('hidden');
+            } else if (selectedParser === 'regex') {
+                regexOptions.classList.remove('hidden');
+            }
+        }
+        
+        // Show/hide method-specific options based on selection
+        function toggleMethodOptions() {
+            const selectedMethod = method.value;
+            ocsvmOptions.classList.add('hidden');
+            dbscanOptions.classList.add('hidden');
+            
+            if (selectedMethod === 'ocsvm') {
+                ocsvmOptions.classList.remove('hidden');
+            } else if (selectedMethod === 'dbscan') {
+                dbscanOptions.classList.remove('hidden');
+            }
+        }
+        
+        // Open tab content
+        function openTab(evt, tabName) {
+            const tabcontent = document.getElementsByClassName("tabcontent");
+            for (let i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            
+            const tablinks = document.getElementsByClassName("tablinks");
+            for (let i = 0; i < tablinks.length; i++) {
+                tablinks[i].classList.remove("active");
+            }
+            
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.classList.add("active");
+        }
+        
+        // Show alert message
+        function showAlert(message, type = 'error') {
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            
+            alertContainer.appendChild(alert);
+            
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+        
+        // Show progress modal
+        function showProgress(title, message) {
+            progressTitle.textContent = title;
+            progressMessage.textContent = message;
+            progressBar.style.width = '0%';
+            progressBar.textContent = '0%';
+            progressModal.classList.remove('hidden');
+        }
+        
+        // Update progress bar
+        function updateProgress(percent, message = null) {
+            progressBar.style.width = `${percent}%`;
+            progressBar.textContent = `${percent}%`;
+            
+            if (message) {
+                progressMessage.textContent = message;
+            }
+            
+            if (percent >= 100) {
+                setTimeout(() => {
+                    progressModal.classList.add('hidden');
+                }, 500);
+            }
+        }
+        
+        // Parse log file
+        function parseLogFile() {
+            const file = fileInput.files[0];
+            if (!file) {
+                showAlert('Please select a file to upload');
+                return;
+            }
+            
+            showProgress('Parsing Log File', 'Uploading and parsing your log file...');
+            
+            // Prepare form data
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            // Additional parser options
+            const options = {};
+            options.parserType = parserType.value;
+            
+            if (parserType.value === 'csv') {
+                options.delimiter = document.getElementById('delimiter').value;
+                options.hasHeader = document.getElementById('hasHeader').checked;
+            } else if (parserType.value === 'regex') {
+                options.pattern = document.getElementById('pattern').value;
+            }
+            
+            // Simulate file upload and parsing
+            // In a real implementation, this would be an API call to the server
+            setTimeout(() => {
+                updateProgress(30, 'File uploaded, parsing logs...');
+                
+                // Simulate log parsing with the DRAIN algorithm
+                setTimeout(() => {
+                    updateProgress(70, 'Extracting log templates...');
+                    
+                    // Simulate template extraction
+                    setTimeout(() => {
+                        updateProgress(100, 'Parsing completed!');
+                        
+                        // Sample data
+                        logRecords = generateSampleLogRecords();
+                        logTemplates = generateSampleTemplates(logRecords);
+                        
+                        displayParseResults();
+                    }, 500);
+                }, 700);
+            }, 800);
+        }
+        
+        // Generate sample log records for demo purposes
+        function generateSampleLogRecords() {
+            const sampleLogs = [
+                { timestamp: '2023-06-10 08:12:34', message: 'User login successful for user john' },
+                { timestamp: '2023-06-10 08:13:45', message: 'User login failed for user alice' },
+                { timestamp: '2023-06-10 08:14:22', message: 'Connection timeout after 30 seconds' },
+                { timestamp: '2023-06-10 08:15:10', message: 'Connection timeout after 45 seconds' },
+                { timestamp: '2023-06-10 08:16:33', message: 'Database query execution took 15ms' },
+                { timestamp: '2023-06-10 08:17:18', message: 'User login successful for user bob' },
+                { timestamp: '2023-06-10 08:18:25', message: 'File download completed successfully' },
+                { timestamp: '2023-06-10 08:19:42', message: 'Error 404: File not found' },
+                { timestamp: '2023-06-10 08:20:56', message: 'Memory usage at 75%' },
+                { timestamp: '2023-06-10 08:21:35', message: 'CPU usage spike detected: 95%' },
+                { timestamp: '2023-06-10 08:22:04', message: 'User login failed for user charlie' },
+                { timestamp: '2023-06-10 08:23:18', message: 'Connection timeout after 60 seconds' },
+                { timestamp: '2023-06-10 08:24:29', message: 'Database query execution took 250ms' },
+                { timestamp: '2023-06-10 08:25:36', message: 'Error 500: Internal server error' },
+                { timestamp: '2023-06-10 08:26:12', message: 'Service restarted after crash' }
+            ];
+            
+            // Add more random records to make it interesting
+            for (let i = 0; i < 35; i++) {
+                const templates = [
+                    'User login successful for user user{ID}',
+                    'User login failed for user user{ID}',
+                    'Connection timeout after {N} seconds',
+                    'Database query execution took {MS}ms',
+                    'Memory usage at {P}%',
+                    'CPU usage at {P}%',
+                    'File download completed: {FILE}',
+                    'Error {CODE}: {MESSAGE}'
+                ];
+                
+                const template = templates[Math.floor(Math.random() * templates.length)];
+                let message = template;
+                
+                // Replace placeholders
+                message = message.replace('{ID}', Math.floor(Math.random() * 1000));
+                message = message.replace('{N}', Math.floor(Math.random() * 120));
+                message = message.replace('{MS}', Math.floor(Math.random() * 1000));
+                message = message.replace('{P}', Math.floor(Math.random() * 100));
+                message = message.replace('{FILE}', `file_${Math.floor(Math.random() * 100)}.txt`);
+                message = message.replace('{CODE}', [404, 500, 403, 401][Math.floor(Math.random() * 4)]);
+                message = message.replace('{MESSAGE}', ['Not found', 'Internal error', 'Access denied', 'Unauthorized'][Math.floor(Math.random() * 4)]);
+                
+                // Generate random timestamp
+                const hour = Math.floor(Math.random() * 24);
+                const minute = Math.floor(Math.random() * 60);
+                const second = Math.floor(Math.random() * 60);
+                const timestamp = `2023-06-10 ${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}:${second.toString().padStart(2, '0')}`;
+                
+                sampleLogs.push({ timestamp, message });
+            }
+            
+            // Sort by timestamp
+            return sampleLogs.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+        }
+        
+        // Generate sample template clusters from log records
+        function generateSampleTemplates(records) {
+            const templates = {};
+            
+            records.forEach(record => {
+                // Simple template extraction - replace numbers and words that look like IDs with placeholders
+                let template = record.message
+                    .replace(/\d+/g, '{N}')
+                    .replace(/user\d+/g, 'user{ID}')
+                    .replace(/file_\d+\.txt/g, 'file_{ID}.txt');
+                
+                if (!templates[template]) {
+                    templates[template] = {
+                        template: template,
+                        count: 0,
+                        logs: []
+                    };
+                }
+                
+                templates[template].count++;
+                templates[template].logs.push(record);
+            });
+            
+            return Object.values(templates).sort((a, b) => b.count - a.count);
+        }
+        
+        // Display parse results
+        function displayParseResults() {
+            // Clear existing content
+            logSamplesBody.innerHTML = '';
+            templatesBody.innerHTML = '';
+            
+            // Add log samples
+            logRecords.slice(0, 20).forEach((record, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${record.timestamp}</td>
+                    <td>${record.message}</td>
+                `;
+                logSamplesBody.appendChild(row);
+            });
+            
+            // Add templates
+            logTemplates.forEach((template, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${template.template}</td>
+                    <td>${template.count}</td>
+                `;
+                templatesBody.appendChild(row);
+            });
+            
+            // Display summary stats
+            summaryStats.innerHTML = `
+                <p><strong>Total Logs:</strong> ${logRecords.length}</p>
+                <p><strong>Unique Templates:</strong> ${logTemplates.length}</p>
+                <p><strong>Time Range:</strong> ${logRecords[0].timestamp} to ${logRecords[logRecords.length-1].timestamp}</p>
+            `;
+            
+            // Show the results section
+            parseResults.classList.remove('hidden');
+        }
+        
+        // Clear parse results
+        function clearParseResults() {
+            parseResults.classList.add('hidden');
+            logRecords = [];
+            logTemplates = [];
+            fileInput.value = '';
+        }
+        
+        // Show anomaly detection options
+        function showAnomalyOptions() {
+            parseResults.classList.add('hidden');
+            anomalyOptions.classList.remove('hidden');
+        }
+        
+        // Go back to parse results
+        function backToParseResults() {
+            anomalyOptions.classList.add('hidden');
+            parseResults.classList.remove('hidden');
+        }
+        
+        // Run anomaly detection
+        function runAnomalyDetection() {
+            if (logRecords.length === 0) {
+                showAlert('No log data available');
+                return;
+            }
+            
+            showProgress('Detecting Anomalies', 'Extracting features from logs...');
+            
+            // Get method-specific options
+            const options = {
+                method: method.value
+            };
+            
+            if (method.value === 'ocsvm') {
+                options.kernel = document.getElementById('kernel').value;
+                options.nu = parseFloat(document.getElementById('nu').value);
+                options.gamma = parseFloat(document.getElementById('gamma').value);
+            } else if (method.value === 'dbscan') {
+                options.eps = parseFloat(document.getElementById('eps').value);
+                options.minSamples = parseInt(document.getElementById('minSamples').value);
+                options.useKdTree = document.getElementById('useKdTree').checked;
+            }
+            
+            // Simulate feature extraction
+            setTimeout(() => {
+                updateProgress(30, 'Generating feature vectors...');
+                
+                // Simulate feature generation
+                setTimeout(() => {
+                    updateProgress(60, 'Running anomaly detection algorithm...');
+                    
+                    // Simulate anomaly detection
+                    setTimeout(() => {
+                        updateProgress(100, 'Anomaly detection completed!');
+                        
+                        // Generate sample results
+                        features = generateSampleFeatures(logRecords);
+                        anomalies = detectSampleAnomalies(logRecords, features, options);
+                        
+                        displayResults(anomalies, options);
+                    }, 1000);
+                }, 800);
+            }, 700);
+        }
+        
+        // Generate sample feature vectors for demo
+        function generateSampleFeatures(records) {
+            // For demo purposes, we'll just generate random feature vectors
+            return records.map(record => {
+                // Create a 2D feature vector for visualization purposes
+                return [
+                    Math.random() * 10,
+                    Math.random() * 10
+                ];
+            });
+        }
+        
+        // Detect sample anomalies for demo
+        function detectSampleAnomalies(records, features, options) {
+            // Identify a random subset of logs as anomalies
+            const anomalyCount = Math.floor(records.length * 0.1); // 10% are anomalies
+            const anomalyIndices = new Set();
+            
+            while (anomalyIndices.size < anomalyCount) {
+                anomalyIndices.add(Math.floor(Math.random() * records.length));
+            }
+            
+            // Generate anomaly scores
+            return records.map((record, index) => {
+                const isAnomaly = anomalyIndices.has(index);
+                let score;
+                
+                if (options.method === 'ocsvm') {
+                    // For OCSVM, negative scores indicate anomalies
+                    score = isAnomaly ? -Math.random() * 2 - 0.1 : Math.random() * 2 + 0.1;
+                } else {
+                    // For DBSCAN, -1 indicates outliers
+                    score = isAnomaly ? -1 : Math.floor(Math.random() * 5);
+                }
+                
+                return {
+                    index,
+                    record,
+                    features: features[index],
+                    score,
+                    isAnomaly
+                };
+            });
+        }
+        
+        // Display anomaly detection results
+        function displayResults(anomalies, options) {
+            // Hide options, show results
+            anomalyOptions.classList.add('hidden');
+            results.classList.remove('hidden');
+            
+            // Clear existing content
+            anomalyBody.innerHTML = '';
+            
+            // Filter anomalies
+            const anomalousLogs = anomalies.filter(a => a.isAnomaly);
+            
+            // Add anomalous logs to the table
+            anomalousLogs.forEach((anomaly, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${anomaly.record.timestamp}</td>
+                    <td>${anomaly.record.message}</td>
+                    <td>${anomaly.score.toFixed(4)}</td>
+                `;
+                anomalyBody.appendChild(row);
+            });
+            
+            // Display summary stats
+            resultsSummary.innerHTML = `
+                <p><strong>Total Logs Analyzed:</strong> ${anomalies.length}</p>
+                <p><strong>Anomalies Detected:</strong> ${anomalousLogs.length} (${(anomalousLogs.length / anomalies.length * 100).toFixed(2)}%)</p>
+                <p><strong>Detection Method:</strong> ${options.method === 'ocsvm' ? 'One-Class SVM' : 'DBSCAN Clustering'}</p>
+            `;
+            
+            // Create visualization
+            createVisualization(anomalies);
+        }
+        
+        // Create visualization of the results
+        function createVisualization(anomalies) {
+            if (chart) {
+                chart.destroy();
+            }
+            
+            const canvas = document.createElement('canvas');
+            canvas.id = 'anomalyChart';
+            canvas.height = 300;
+            chartContainer.innerHTML = '';
+            chartContainer.appendChild(canvas);
+            
+            const ctx = canvas.getContext('2d');
+            
+            // Prepare data for scatter plot
+            const normalData = anomalies
+                .filter(a => !a.isAnomaly)
+                .map(a => ({ x: a.features[0], y: a.features[1] }));
+            
+            const anomalyData = anomalies
+                .filter(a => a.isAnomaly)
+                .map(a => ({ x: a.features[0], y: a.features[1] }));
+            
+            chart = new Chart(ctx, {
+                type: 'scatter',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Normal Logs',
+                            data: normalData,
+                            backgroundColor: 'rgba(54, 162, 235, 0.6)',
+                            borderColor: 'rgba(54, 162, 235, 1)',
+                            borderWidth: 1,
+                            pointRadius: 5
+                        },
+                        {
+                            label: 'Anomalies',
+                            data: anomalyData,
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1,
+                            pointRadius: 5
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Log Anomaly Detection - Feature Space Visualization'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `(${context.parsed.x.toFixed(2)}, ${context.parsed.y.toFixed(2)})`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Feature 1'
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Feature 2'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        // Start a new analysis
+        function startNewAnalysis() {
+            results.classList.add('hidden');
+            parseResults.classList.add('hidden');
+            anomalyOptions.classList.add('hidden');
+            fileInput.value = '';
+            logRecords = [];
+            logTemplates = [];
+            features = [];
+            anomalies = [];
+            
+            if (chart) {
+                chart.destroy();
+                chart = null;
+            }
+        }
+        
+        // Download results as JSON
+        function downloadResults() {
+            if (anomalies.length === 0) {
+                showAlert('No results to download');
+                return;
+            }
+            
+            const data = {
+                totalLogs: logRecords.length,
+                totalTemplates: logTemplates.length,
+                anomalies: anomalies.filter(a => a.isAnomaly).map(a => ({
+                    timestamp: a.record.timestamp,
+                    message: a.record.message,
+                    score: a.score
+                }))
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'anomaly_detection_results.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // Initialize the page
+        init();
+    </script>
+</body>
+</html> 

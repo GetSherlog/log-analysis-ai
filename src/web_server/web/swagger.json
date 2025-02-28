@@ -70,6 +70,80 @@
         }
       }
     },
+    "/api/upload": {
+      "post": {
+        "summary": "Upload a log file",
+        "description": "Upload a log file for processing by the anomaly detection system",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Log file to upload"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "File uploaded successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean",
+                      "description": "Whether the upload was successful"
+                    },
+                    "filename": {
+                      "type": "string",
+                      "description": "Generated filename on the server"
+                    },
+                    "originalName": {
+                      "type": "string",
+                      "description": "Original filename as uploaded"
+                    },
+                    "path": {
+                      "type": "string",
+                      "description": "Path to the file on the server"
+                    },
+                    "size": {
+                      "type": "integer",
+                      "description": "Size of the uploaded file in bytes"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/parser/drain": {
       "post": {
         "summary": "Parse log lines using DRAIN algorithm",
