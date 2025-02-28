@@ -46,6 +46,12 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Eigen3
+RUN apt-get update && apt-get install -y \
+    libeigen3-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 # Show information about the Arrow installation
 RUN echo "Arrow headers location:" && \
     find /usr/include -name "arrow" -type d | xargs ls -la && \

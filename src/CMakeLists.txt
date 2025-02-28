@@ -11,6 +11,7 @@ list(FILTER SOURCES EXCLUDE REGEX "logbert_unit_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "dbscan_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "dbscan_kdtree_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "label_encoder_test\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "one_class_svm_test\\.cpp$")
 file(GLOB HEADERS "*.h")
 
 # Create library
@@ -20,12 +21,17 @@ target_include_directories(logai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # Find abseil-cpp package
 find_package(absl REQUIRED)
 
+# Find Eigen3 package
+find_package(Eigen3 REQUIRED)
+include_directories(${EIGEN3_INCLUDE_DIR})
+
 # Link with dependencies
 target_link_libraries(logai 
     PRIVATE nlohmann_json::nlohmann_json
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE ${EIGEN3_LIBRARIES}
 )
 
 # Add performance test executable
@@ -138,6 +144,11 @@ target_link_libraries(label_encoder_test
     PRIVATE absl::strings
 )
 
+# For One-Class SVM test
+add_executable(one_class_svm_test one_class_svm_test.cpp)
+target_link_libraries(one_class_svm_test PRIVATE logai PkgConfig::ARROW PkgConfig::PARQUET absl::strings
+                     ${Eigen3_LIBRARIES} nlohmann_json::nlohmann_json)
+
 # Enable SIMD optimizations
 # Add compiler-specific flags for SIMD
 if(NOT DEFINED DISABLE_SIMD OR NOT DISABLE_SIMD)
@@ -186,7 +197,8 @@ else()
 endif() # Fixed trailing endif
 
 # Install
-install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test
+install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test 
+        logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test one_class_svm_test
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)
