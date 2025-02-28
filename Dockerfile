@@ -22,6 +22,12 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     unzip \
     python3-pip \
+    nlohmann-json3-dev \
+    libjemalloc-dev \
+    libgoogle-glog-dev \
+    libgflags-dev \
+    liblz4-dev \
+    libleveldb-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Apache Arrow
@@ -58,10 +64,30 @@ RUN apt-get update && apt-get install -y \
     libtbb-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Install nlohmann-json from source
+RUN wget -q https://github.com/nlohmann/json/archive/refs/tags/v3.11.2.tar.gz && \
+    tar -xf v3.11.2.tar.gz && \
+    cd json-3.11.2 && \
+    mkdir build && cd build && \
+    cmake -DJSON_BuildTests=OFF .. && \
+    make install && \
+    ldconfig
+
+# Install Abseil C++ library
+RUN git clone https://github.com/abseil/abseil-cpp.git && \
+    cd abseil-cpp && \
+    git checkout 20230125.3 && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_CXX_STANDARD=17 -DABSL_ENABLE_INSTALL=ON -DABSL_PROPAGATE_CXX_STD=ON .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
+
 # Install Drogon framework
 RUN git clone https://github.com/drogonframework/drogon && \
     cd drogon && \
     git checkout v1.8.6 && \
+    git submodule update --init --recursive && \
     mkdir build && cd build && \
     cmake .. && \
     make -j$(nproc) && \
@@ -76,7 +102,7 @@ COPY . .
 
 # Build LogAI-CPP
 RUN mkdir -p build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_DEPS=ON .. && \
     make -j$(nproc)
 
 # Runtime stage
@@ -98,6 +124,7 @@ RUN apt-get update && apt-get install -y \
     liblz4-1 \
     libleveldb1d \
     libtbb12 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built executable and necessary files from the build stage
@@ -108,6 +135,7 @@ COPY --from=build /app/src/web/static /usr/local/share/logai/static
 COPY --from=build /usr/local/lib/libdrogon* /usr/local/lib/
 COPY --from=build /usr/local/lib/libarrow* /usr/local/lib/
 COPY --from=build /usr/local/lib/libparquet* /usr/local/lib/
+COPY --from=build /usr/local/lib/libabsl* /usr/local/lib/
 
 # Update library cache
 RUN ldconfig

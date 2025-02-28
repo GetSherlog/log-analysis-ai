@@ -2,6 +2,15 @@
 
 A high-performance log analysis library written in C++.
 
+## Quick Start with Docker
+
+```bash
+# Start the LogAI-CPP server and access the anomaly detection tool
+./start.sh && open http://localhost:8080/anomaly_detection.html
+```
+
+This command builds and starts the Docker container with the LogAI-CPP web server, then opens the anomaly detection tool in your browser. For detailed Docker setup information, see [DOCKER.md](DOCKER.md).
+
 ## Features
 
 - Fast log file loading from various formats (CSV, JSON, custom regex patterns)

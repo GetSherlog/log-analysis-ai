@@ -1,5 +1,12 @@
 # Docker Setup for LogAI-CPP
 
+## Quick Command
+
+```bash
+# Start the LogAI-CPP server and get anomaly detection tool
+./start.sh && open http://localhost:8080/anomaly_detection.html
+```
+
 This directory contains Docker configuration files to easily build and run the LogAI-CPP web server with the anomaly detection frontend.
 
 ## Prerequisites
