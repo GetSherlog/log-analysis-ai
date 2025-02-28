@@ -28,7 +28,11 @@ RUN apt-get update && apt-get install -y \
     libgflags-dev \
     liblz4-dev \
     libleveldb-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/include/uuid/uuid.h /usr/include/uuid.h \
+    # Create a wrapper for uuid_lib to fix the test
+    && echo '#include <uuid/uuid.h>' > /usr/include/uuid_lib.h \
+    && echo '#define UUID_lib uuid' >> /usr/include/uuid_lib.h
 
 # Install Apache Arrow
 RUN apt-get update && apt-get install -y \
@@ -83,95 +87,106 @@ RUN git clone https://github.com/abseil/abseil-cpp.git && \
     make install && \
     ldconfig
 
+# Create UUID special handling
+RUN ln -sf /usr/lib/aarch64-linux-gnu/libuuid.so /usr/lib/aarch64-linux-gnu/libUUID_lib.so \
+    && echo "#ifndef UUID_LIB_H" > /usr/include/uuid_lib.h \
+    && echo "#define UUID_LIB_H" >> /usr/include/uuid_lib.h \
+    && echo "#include <uuid/uuid.h>" >> /usr/include/uuid_lib.h \
+    && echo "#define UUID_lib uuid" >> /usr/include/uuid_lib.h \
+    && echo "#endif // UUID_LIB_H" >> /usr/include/uuid_lib.h \
+    && ldconfig
+
 # Install Drogon framework
-RUN git clone https://github.com/drogonframework/drogon && \
-    cd drogon && \
-    git checkout v1.8.6 && \
-    git submodule update --init --recursive && \
-    mkdir build && cd build && \
-    cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON .. && \
-    make -j$(nproc) && \
-    cp libdrogon.so libtrantor.so /usr/local/lib/ && \
-    mkdir -p /usr/local/include/drogon && \
-    cp -r ../lib/inc/* /usr/local/include/ && \
-    ldconfig
+RUN git clone https://github.com/drogonframework/drogon \
+    && cd drogon \
+    && git checkout v1.8.6 \
+    && git submodule update --init --recursive \
+    # Create the test files directory
+    && mkdir -p cmake/tests \
+    # Create normal uuid test file
+    && echo '#include <uuid/uuid.h>' > cmake/tests/normal_uuid_lib_test.cc \
+    && echo 'int main() { uuid_t uuid; uuid_generate(uuid); return 0; }' >> cmake/tests/normal_uuid_lib_test.cc \
+    # Create ossp uuid test file
+    && echo '#include <uuid.h>' > cmake/tests/ossp_uuid_lib_test.cc \
+    && echo 'int main() { uuid_t *uuid; uuid_create(&uuid); return 0; }' >> cmake/tests/ossp_uuid_lib_test.cc \
+    # Directly modify the CMakeLists.txt
+    && sed -i '/find_package(UUID REQUIRED)/,/endif(NOT UUID_FOUND)/c\\
+# Custom UUID handling\\
+set(UUID_FOUND TRUE)\\
+set(UUID_INCLUDE_DIRS "/usr/include")\\
+set(UUID_LIBRARIES "/usr/lib/aarch64-linux-gnu/libuuid.so")\\
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_NORMAL_UUID")\\
+' CMakeLists.txt \
+    && mkdir build && cd build \
+    && cmake -DBUILD_SHARED_LIBS=ON \
+          -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+          .. \
+    && make -j$(nproc) \
+    && cp libdrogon.so /usr/local/lib/ \
+    && cp trantor/libtrantor.so /usr/local/lib/ \
+    && mkdir -p /usr/local/include/drogon \
+    && cp -r ../lib/inc/* /usr/local/include/ \
+    && mkdir -p /usr/local/lib/cmake/Drogon \
+    && mkdir -p /usr/local/lib/cmake/Trantor \
+    && echo 'set(DROGON_FOUND TRUE)' > /usr/local/lib/cmake/Drogon/DrogonConfig.cmake \
+    && echo 'set(DROGON_INCLUDE_DIR "/usr/local/include")' >> /usr/local/lib/cmake/Drogon/DrogonConfig.cmake \
+    && echo 'set(DROGON_LIBRARIES "/usr/local/lib/libdrogon.so")' >> /usr/local/lib/cmake/Drogon/DrogonConfig.cmake \
+    && echo 'set(TRANTOR_FOUND TRUE)' > /usr/local/lib/cmake/Trantor/TrantorConfig.cmake \
+    && echo 'set(TRANTOR_INCLUDE_DIR "/usr/local/include")' >> /usr/local/lib/cmake/Trantor/TrantorConfig.cmake \
+    && echo 'set(TRANTOR_LIBRARIES "/usr/local/lib/libtrantor.so")' >> /usr/local/lib/cmake/Trantor/TrantorConfig.cmake \
+    && ldconfig
 
 # Create a working directory
 WORKDIR /app
 
 # Create custom cmake modules to avoid target conflicts
-RUN mkdir -p /usr/local/share/cmake/Modules && \
-    echo 'set(DROGON_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindDrogon.cmake && \
-    echo 'set(DROGON_INCLUDE_DIRS "/usr/local/include")' >> /usr/local/share/cmake/Modules/FindDrogon.cmake && \
-    echo 'set(DROGON_LIBRARIES "/usr/local/lib/libdrogon.so")' >> /usr/local/share/cmake/Modules/FindDrogon.cmake && \
-    echo 'set(TRANTOR_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindTrantor.cmake && \
-    echo 'set(TRANTOR_INCLUDE_DIRS "/usr/local/include")' >> /usr/local/share/cmake/Modules/FindTrantor.cmake && \
-    echo 'set(TRANTOR_LIBRARIES "/usr/local/lib/libtrantor.so")' >> /usr/local/share/cmake/Modules/FindTrantor.cmake && \
-    echo 'set(UUID_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindUUID.cmake && \
-    echo 'set(UUID_INCLUDE_DIRS "/usr/include")' >> /usr/local/share/cmake/Modules/FindUUID.cmake && \
-    echo 'set(UUID_LIBRARIES "/usr/lib/aarch64-linux-gnu/libuuid.so")' >> /usr/local/share/cmake/Modules/FindUUID.cmake && \
-    echo 'set(MYSQL_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindMySQL.cmake && \
-    echo 'set(MYSQL_INCLUDE_DIRS "/usr/include/mariadb")' >> /usr/local/share/cmake/Modules/FindMySQL.cmake && \
-    echo 'set(MYSQL_LIBRARIES "/usr/lib/aarch64-linux-gnu/libmariadbclient.so")' >> /usr/local/share/cmake/Modules/FindMySQL.cmake
+RUN mkdir -p /usr/local/share/cmake/Modules \
+    && echo 'set(UUID_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(UUID_INCLUDE_DIRS "/usr/include")' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(UUID_LIBRARIES "/usr/lib/aarch64-linux-gnu/libuuid.so")' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(UUID_INCLUDE_DIR "/usr/include")' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(UUID_LIBRARY "/usr/lib/aarch64-linux-gnu/libuuid.so")' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(OSSP_UUID_COMPILER_TEST FALSE)' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(NORMAL_UUID_COMPILER_TEST TRUE)' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(UUID_lib "UUID_lib")' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'mark_as_advanced(UUID_INCLUDE_DIRS UUID_LIBRARIES UUID_INCLUDE_DIR UUID_LIBRARY)' >> /usr/local/share/cmake/Modules/FindUUID.cmake \
+    && echo 'set(DROGON_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindDrogon.cmake \
+    && echo 'set(DROGON_INCLUDE_DIRS "/usr/local/include")' >> /usr/local/share/cmake/Modules/FindDrogon.cmake \
+    && echo 'set(DROGON_LIBRARIES "/usr/local/lib/libdrogon.so")' >> /usr/local/share/cmake/Modules/FindDrogon.cmake \
+    && echo 'set(TRANTOR_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindTrantor.cmake \
+    && echo 'set(TRANTOR_INCLUDE_DIRS "/usr/local/include")' >> /usr/local/share/cmake/Modules/FindTrantor.cmake \
+    && echo 'set(TRANTOR_LIBRARIES "/usr/local/lib/libtrantor.so")' >> /usr/local/share/cmake/Modules/FindTrantor.cmake \
+    && echo 'set(MYSQL_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindMySQL.cmake \
+    && echo 'set(MYSQL_INCLUDE_DIRS "/usr/include/mariadb")' >> /usr/local/share/cmake/Modules/FindMySQL.cmake \
+    && echo 'set(MYSQL_LIBRARIES "/usr/lib/aarch64-linux-gnu/libmariadbclient.so")' >> /usr/local/share/cmake/Modules/FindMySQL.cmake
 
-# Copy the source code
+# Copy source code (excluding test_data)
 COPY . .
+RUN rm -rf test_data
 
-# Build LogAI-CPP using custom module path
-RUN mkdir -p build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release \
-    -DUSE_SYSTEM_DEPS=ON \
-    -DCMAKE_MODULE_PATH=/usr/local/share/cmake/Modules \
-    .. && \
-    make -j$(nproc)
+# Build LogAI C++ Web Server
+COPY . /app/
+WORKDIR /app
+RUN mkdir -p build && cd build \
+    && cmake -DCMAKE_MODULE_PATH="/usr/local/share/cmake/Modules" \
+          -DCMAKE_PREFIX_PATH="/usr/local/lib/cmake" \
+          .. \
+    && make -j$(nproc) \
+    && cp bin/logai_web_server /usr/local/bin/ \
+    && mkdir -p /usr/local/share/logai/api \
+    && cp -r ../web/public/* /usr/local/share/logai/ \
+    && cp -r ../web/api/* /usr/local/share/logai/api/
 
-# Runtime stage
-FROM ubuntu:22.04 AS runtime
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    libssl3 \
-    zlib1g \
-    libjsoncpp25 \
-    uuid-runtime \
-    libmariadb3 \
-    libboost-program-options1.74.0 \
-    libboost-system1.74.0 \
-    libboost-filesystem1.74.0 \
-    libboost-thread1.74.0 \
-    libgoogle-glog0v5 \
-    libgflags2.2 \
-    liblz4-1 \
-    libleveldb1d \
-    libtbb12 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the built executable and necessary files from the build stage
-COPY --from=build /app/build/logai_web_server /usr/local/bin/
-COPY --from=build /app/build/lib/ /usr/local/lib/
-COPY --from=build /app/src/web/templates /usr/local/share/logai/templates
-COPY --from=build /app/src/web/static /usr/local/share/logai/static
-COPY --from=build /usr/local/lib/libdrogon.so /usr/local/lib/
-COPY --from=build /usr/local/lib/libtrantor.so /usr/local/lib/
-COPY --from=build /usr/local/lib/libarrow* /usr/local/lib/
-COPY --from=build /usr/local/lib/libparquet* /usr/local/lib/
-COPY --from=build /usr/local/lib/libabsl* /usr/local/lib/
-
-# Update library cache
-RUN ldconfig
+# Install Curl for health check
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Create directories for logs and uploads
-RUN mkdir -p /app/logs /app/uploads
+RUN mkdir -p /var/log/logai \
+    && mkdir -p /var/uploads/logai \
+    && chmod -R 777 /var/log/logai \
+    && chmod -R 777 /var/uploads/logai
 
-# Set working directory
-WORKDIR /app
-
-# Set environment variables
-ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
-ENV PATH=/usr/local/bin:$PATH
-
-# Expose the web server port
+# Expose port for web server
 EXPOSE 8080
 
 # Health check
