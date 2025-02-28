@@ -89,20 +89,40 @@ RUN git clone https://github.com/drogonframework/drogon && \
     git checkout v1.8.6 && \
     git submodule update --init --recursive && \
     mkdir build && cd build && \
-    cmake .. && \
+    cmake -DBUILD_SHARED_LIBS=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON .. && \
     make -j$(nproc) && \
-    make install && \
+    cp libdrogon.so libtrantor.so /usr/local/lib/ && \
+    mkdir -p /usr/local/include/drogon && \
+    cp -r ../lib/inc/* /usr/local/include/ && \
     ldconfig
 
 # Create a working directory
 WORKDIR /app
 
+# Create custom cmake modules to avoid target conflicts
+RUN mkdir -p /usr/local/share/cmake/Modules && \
+    echo 'set(DROGON_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindDrogon.cmake && \
+    echo 'set(DROGON_INCLUDE_DIRS "/usr/local/include")' >> /usr/local/share/cmake/Modules/FindDrogon.cmake && \
+    echo 'set(DROGON_LIBRARIES "/usr/local/lib/libdrogon.so")' >> /usr/local/share/cmake/Modules/FindDrogon.cmake && \
+    echo 'set(TRANTOR_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindTrantor.cmake && \
+    echo 'set(TRANTOR_INCLUDE_DIRS "/usr/local/include")' >> /usr/local/share/cmake/Modules/FindTrantor.cmake && \
+    echo 'set(TRANTOR_LIBRARIES "/usr/local/lib/libtrantor.so")' >> /usr/local/share/cmake/Modules/FindTrantor.cmake && \
+    echo 'set(UUID_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindUUID.cmake && \
+    echo 'set(UUID_INCLUDE_DIRS "/usr/include")' >> /usr/local/share/cmake/Modules/FindUUID.cmake && \
+    echo 'set(UUID_LIBRARIES "/usr/lib/aarch64-linux-gnu/libuuid.so")' >> /usr/local/share/cmake/Modules/FindUUID.cmake && \
+    echo 'set(MYSQL_FOUND TRUE)' > /usr/local/share/cmake/Modules/FindMySQL.cmake && \
+    echo 'set(MYSQL_INCLUDE_DIRS "/usr/include/mariadb")' >> /usr/local/share/cmake/Modules/FindMySQL.cmake && \
+    echo 'set(MYSQL_LIBRARIES "/usr/lib/aarch64-linux-gnu/libmariadbclient.so")' >> /usr/local/share/cmake/Modules/FindMySQL.cmake
+
 # Copy the source code
 COPY . .
 
-# Build LogAI-CPP
+# Build LogAI-CPP using custom module path
 RUN mkdir -p build && cd build && \
-    cmake -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_DEPS=ON .. && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+    -DUSE_SYSTEM_DEPS=ON \
+    -DCMAKE_MODULE_PATH=/usr/local/share/cmake/Modules \
+    .. && \
     make -j$(nproc)
 
 # Runtime stage
@@ -132,7 +152,8 @@ COPY --from=build /app/build/logai_web_server /usr/local/bin/
 COPY --from=build /app/build/lib/ /usr/local/lib/
 COPY --from=build /app/src/web/templates /usr/local/share/logai/templates
 COPY --from=build /app/src/web/static /usr/local/share/logai/static
-COPY --from=build /usr/local/lib/libdrogon* /usr/local/lib/
+COPY --from=build /usr/local/lib/libdrogon.so /usr/local/lib/
+COPY --from=build /usr/local/lib/libtrantor.so /usr/local/lib/
 COPY --from=build /usr/local/lib/libarrow* /usr/local/lib/
 COPY --from=build /usr/local/lib/libparquet* /usr/local/lib/
 COPY --from=build /usr/local/lib/libabsl* /usr/local/lib/
