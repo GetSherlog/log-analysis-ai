@@ -109,14 +109,18 @@ RUN git clone https://github.com/drogonframework/drogon \
     # Create ossp uuid test file
     && echo '#include <uuid.h>' > cmake/tests/ossp_uuid_lib_test.cc \
     && echo 'int main() { uuid_t *uuid; uuid_create(&uuid); return 0; }' >> cmake/tests/ossp_uuid_lib_test.cc \
-    # Directly modify the CMakeLists.txt
-    && sed -i '/find_package(UUID REQUIRED)/,/endif(NOT UUID_FOUND)/c\\
-# Custom UUID handling\\
-set(UUID_FOUND TRUE)\\
-set(UUID_INCLUDE_DIRS "/usr/include")\\
-set(UUID_LIBRARIES "/usr/lib/aarch64-linux-gnu/libuuid.so")\\
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_NORMAL_UUID")\\
-' CMakeLists.txt \
+    # Add UUID variables directly to the top of the file
+    && echo '# Custom UUID handling' > /tmp/uuid_defs \
+    && echo 'set(UUID_FOUND TRUE)' >> /tmp/uuid_defs \
+    && echo 'set(UUID_INCLUDE_DIRS "/usr/include")' >> /tmp/uuid_defs \
+    && echo 'set(UUID_LIBRARIES "/usr/lib/aarch64-linux-gnu/libuuid.so")' >> /tmp/uuid_defs \
+    && echo 'set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_NORMAL_UUID")' >> /tmp/uuid_defs \
+    && cat /tmp/uuid_defs CMakeLists.txt > CMakeLists.txt.new \
+    && mv CMakeLists.txt.new CMakeLists.txt \
+    # Remove the find_package(UUID REQUIRED) line
+    && sed -i '/find_package(UUID REQUIRED)/d' CMakeLists.txt \
+    # Remove the UUID test block
+    && sed -i '/if(NOT UUID_FOUND)/,/endif(NOT UUID_FOUND)/d' CMakeLists.txt \
     && mkdir build && cd build \
     && cmake -DBUILD_SHARED_LIBS=ON \
           -DCMAKE_POSITION_INDEPENDENT_CODE=ON \

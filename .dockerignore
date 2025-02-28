@@ -2,4 +2,5 @@ build/
 .git/
 .gitignore
 .dockerignore
-*.md 
+*.md
+test_data/ 
