@@ -10,6 +10,7 @@ list(FILTER SOURCES EXCLUDE REGEX "logbert_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "logbert_unit_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "dbscan_test\\.cpp$")
 list(FILTER SOURCES EXCLUDE REGEX "dbscan_kdtree_test\\.cpp$")
+list(FILTER SOURCES EXCLUDE REGEX "label_encoder_test\\.cpp$")
 file(GLOB HEADERS "*.h")
 
 # Create library
@@ -127,6 +128,16 @@ target_link_libraries(logbert_unit_test
     PRIVATE absl::strings
 )
 
+# Add label encoder test executable
+add_executable(label_encoder_test label_encoder_test.cpp)
+target_link_libraries(label_encoder_test 
+    PRIVATE logai
+    PRIVATE nlohmann_json::nlohmann_json
+    PRIVATE PkgConfig::ARROW
+    PRIVATE PkgConfig::PARQUET
+    PRIVATE absl::strings
+)
+
 # Enable SIMD optimizations
 # Add compiler-specific flags for SIMD
 if(NOT DEFINED DISABLE_SIMD OR NOT DISABLE_SIMD)
@@ -175,7 +186,7 @@ else()
 endif() # Fixed trailing endif
 
 # Install
-install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test
+install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test
         LIBRARY DESTINATION lib
         ARCHIVE DESTINATION lib
         RUNTIME DESTINATION bin)
