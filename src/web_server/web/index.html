@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LogAI-CPP Web Server</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #2980b9;
+            margin-top: 30px;
+        }
+        code {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-family: monospace;
+            padding: 2px 4px;
+        }
+        pre {
+            background-color: #f8f8f8;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            padding: 10px;
+            overflow-x: auto;
+        }
+        a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        .endpoint {
+            background-color: #f1f1f1;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #3498db;
+        }
+        .method {
+            font-weight: bold;
+            color: #e74c3c;
+        }
+    </style>
+</head>
+<body>
+    <h1>LogAI-CPP Web Server</h1>
+    <p>Welcome to the LogAI-CPP Web Server. This server provides a high-performance HTTP API to interact with the LogAI-CPP library functionality.</p>
+    
+    <h2>API Endpoints</h2>
+    
+    <div class="endpoint">
+        <p><span class="method">GET</span> <code>/health</code> - Check server health</p>
+    </div>
+    
+    <div class="endpoint">
+        <p><span class="method">GET</span> <code>/api</code> - Get API information</p>
+    </div>
+    
+    <h3>Log Parsing</h3>
+    
+    <div class="endpoint">
+        <p><span class="method">POST</span> <code>/api/parser/drain</code> - Parse log lines using DRAIN algorithm</p>
+    </div>
+    
+    <div class="endpoint">
+        <p><span class="method">POST</span> <code>/api/parser/file</code> - Parse logs from a file</p>
+    </div>
+    
+    <h3>Feature Extraction</h3>
+    
+    <div class="endpoint">
+        <p><span class="method">POST</span> <code>/api/features/extract</code> - Extract features from log lines</p>
+    </div>
+    
+    <div class="endpoint">
+        <p><span class="method">POST</span> <code>/api/features/logbert</code> - Vectorize log messages using LogBERT</p>
+    </div>
+    
+    <h3>Anomaly Detection</h3>
+    
+    <div class="endpoint">
+        <p><span class="method">POST</span> <code>/api/anomalies/ocsvm</code> - Detect anomalies using One-Class SVM</p>
+    </div>
+    
+    <div class="endpoint">
+        <p><span class="method">POST</span> <code>/api/anomalies/dbscan</code> - Cluster log events using DBSCAN</p>
+    </div>
+    
+    <h2>API Documentation</h2>
+    <p>For detailed API documentation, please see the <a href="/web/swagger.json">Swagger/OpenAPI definition</a>.</p>
+    
+    <h2>Example Usage</h2>
+    <p>Example of parsing logs using the DRAIN algorithm:</p>
+    <pre>curl -X POST http://localhost:8080/api/parser/drain \
+  -H "Content-Type: application/json" \
+  -d '{
+    "logLines": [
+      "User login failed for user john",
+      "User login failed for user alice",
+      "Connection timeout after 30 seconds",
+      "Connection timeout after 45 seconds"
+    ]
+  }'</pre>
+  
+    <h2>Documentation</h2>
+    <p>For more information about the LogAI-CPP library and this web server, please refer to the <a href="https://github.com/your-org/logai-cpp">GitHub repository</a>.</p>
+    
+    <footer style="margin-top: 50px; color: #7f8c8d; font-size: 0.9em; text-align: center;">
+        <p>LogAI-CPP Web Server v0.1.0</p>
+    </footer>
+</body>
+</html> 

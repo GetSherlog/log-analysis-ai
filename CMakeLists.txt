@@ -37,8 +37,28 @@ pkg_check_modules(PARQUET REQUIRED IMPORTED_TARGET parquet)
 message(STATUS "Found Arrow: ${ARROW_VERSION}")
 message(STATUS "Found Parquet: ${PARQUET_VERSION}")
 
+# Find Drogon package for the web server
+find_package(Drogon QUIET)
+if(NOT Drogon_FOUND)
+    message(STATUS "Drogon not found. Will attempt to fetch and build it.")
+    include(FetchContent)
+    FetchContent_Declare(
+        drogon
+        GIT_REPOSITORY https://github.com/drogonframework/drogon.git
+        GIT_TAG v1.8.6
+    )
+    FetchContent_MakeAvailable(drogon)
+endif()
+
 # Add src subdirectory
 add_subdirectory(src)
+
+# Add web_server subdirectory if Drogon is available
+if(Drogon_FOUND OR TARGET Drogon::Drogon)
+    add_subdirectory(src/web_server)
+else()
+    message(WARNING "Drogon not available. Web server will not be built.")
+endif()
 
 # Package configuration
 include(CMakePackageConfigHelpers)
@@ -65,4 +85,10 @@ message(STATUS "  C++ compiler flags:${CMAKE_CXX_FLAGS}")
 message(STATUS "  Install prefix:    ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "  Arrow version:     ${ARROW_VERSION}")
 message(STATUS "  Parquet version:   ${PARQUET_VERSION}")
+if(Drogon_FOUND OR TARGET Drogon::Drogon)
+    message(STATUS "  Drogon version:    ${Drogon_VERSION}")
+    message(STATUS "  Web server:        Enabled")
+else()
+    message(STATUS "  Web server:        Disabled")
+endif()
 message(STATUS "") 
