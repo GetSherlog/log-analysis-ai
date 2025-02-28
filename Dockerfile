@@ -1,68 +1,133 @@
-FROM ubuntu:22.04
+FROM ubuntu:22.04 AS build
 
-# Set environment variables
+# Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install basic dependencies
+# Install dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    cmake \
     git \
-    curl \
-    wget \
-    pkg-config \
+    cmake \
+    g++ \
+    make \
     libssl-dev \
-    vim \
-    && apt-get clean \
+    zlib1g-dev \
+    libjsoncpp-dev \
+    uuid-dev \
+    libmariadb-dev \
+    wget \
+    curl \
+    libboost-all-dev \
+    python3 \
+    ninja-build \
+    pkg-config \
+    unzip \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Apache Arrow and Parquet
+# Install Apache Arrow
 RUN apt-get update && apt-get install -y \
-    apt-transport-https \
-    lsb-release \
-    gnupg \
-    && apt-get clean \
+    libboost-all-dev \
+    libjemalloc-dev \
+    libgoogle-glog-dev \
+    libgflags-dev \
+    liblz4-dev \
+    libleveldb-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | apt-key add - && \
-    wget -O - https://apache.jfrog.io/artifactory/arrow/$(lsb_release --id --short | tr 'A-Z' 'a-z')/apache-arrow-apt-source-latest-$(lsb_release --codename --short).deb -O /tmp/apache-arrow-apt-source.deb && \
-    apt-get update && apt-get install -y /tmp/apache-arrow-apt-source.deb && \
-    apt-get update && apt-get install -y \
-    libarrow-dev \
-    libarrow-dataset-dev \
-    libparquet-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Install Apache Arrow from source
+WORKDIR /tmp
+RUN wget -q https://github.com/apache/arrow/archive/refs/tags/apache-arrow-12.0.0.tar.gz && \
+    tar -xf apache-arrow-12.0.0.tar.gz && \
+    cd arrow-apache-arrow-12.0.0 && \
+    mkdir cpp/build && cd cpp/build && \
+    cmake -DARROW_PARQUET=ON -DARROW_DATASET=ON -DARROW_CSV=ON .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
 
-# Install nlohmann-json
+# Install Eigen
+RUN wget -q https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz && \
+    tar -xf eigen-3.4.0.tar.gz && \
+    cd eigen-3.4.0 && \
+    mkdir build && cd build && \
+    cmake .. && \
+    make install
+
+# Install TBB
 RUN apt-get update && apt-get install -y \
-    nlohmann-json3-dev \
-    && apt-get clean \
+    libtbb-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install abseil-cpp
-RUN apt-get update && apt-get install -y \
-    libabsl-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+# Install Drogon framework
+RUN git clone https://github.com/drogonframework/drogon && \
+    cd drogon && \
+    git checkout v1.8.6 && \
+    mkdir build && cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
 
-# Install Eigen3
-RUN apt-get update && apt-get install -y \
-    libeigen3-dev \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-# Show information about the Arrow installation
-RUN echo "Arrow headers location:" && \
-    find /usr/include -name "arrow" -type d | xargs ls -la && \
-    echo "Arrow version installed:" && \
-    apt-cache show libarrow-dev | grep -E "Version|Depends"
-
-# Set up working directory
+# Create a working directory
 WORKDIR /app
 
-# The directory will be mounted from the host
-VOLUME ["/app"]
+# Copy the source code
+COPY . .
 
-# Set the default command
-CMD ["/bin/bash"] 
+# Build LogAI-CPP
+RUN mkdir -p build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j$(nproc)
+
+# Runtime stage
+FROM ubuntu:22.04 AS runtime
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    libssl3 \
+    zlib1g \
+    libjsoncpp25 \
+    uuid-runtime \
+    libmariadb3 \
+    libboost-program-options1.74.0 \
+    libboost-system1.74.0 \
+    libboost-filesystem1.74.0 \
+    libboost-thread1.74.0 \
+    libgoogle-glog0v5 \
+    libgflags2.2 \
+    liblz4-1 \
+    libleveldb1d \
+    libtbb12 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the built executable and necessary files from the build stage
+COPY --from=build /app/build/logai_web_server /usr/local/bin/
+COPY --from=build /app/build/lib/ /usr/local/lib/
+COPY --from=build /app/src/web/templates /usr/local/share/logai/templates
+COPY --from=build /app/src/web/static /usr/local/share/logai/static
+COPY --from=build /usr/local/lib/libdrogon* /usr/local/lib/
+COPY --from=build /usr/local/lib/libarrow* /usr/local/lib/
+COPY --from=build /usr/local/lib/libparquet* /usr/local/lib/
+
+# Update library cache
+RUN ldconfig
+
+# Create directories for logs and uploads
+RUN mkdir -p /app/logs /app/uploads
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+ENV PATH=/usr/local/bin:$PATH
+
+# Expose the web server port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8080/api/health || exit 1
+
+# Start the web server with 16 threads
+CMD ["/usr/local/bin/logai_web_server", "--threads", "16", "--document-root", "/usr/local/share/logai"] 

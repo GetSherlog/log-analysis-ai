@@ -1,11 +1,28 @@
 version: '3.8'
 
 services:
-  logai-cpp:
+  logai-web:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: logai-web
+    ports:
+      - "8080:8080"
     volumes:
-      - .:/app
-    working_dir: /app
-    tty: true 
+      - ./logs:/app/logs
+      - ./uploads:/app/uploads
+    environment:
+      - TZ=UTC
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    networks:
+      - logai-network
+
+networks:
+  logai-network:
+    driver: bridge 
