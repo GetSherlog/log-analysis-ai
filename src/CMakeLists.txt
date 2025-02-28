@@ -85,14 +85,20 @@ target_link_libraries(simd_test
 )
 
 # Add NEON SIMD optimization test executable
-add_executable(neon_simd_test neon_simd_test.cpp)
-target_link_libraries(neon_simd_test 
-    PRIVATE logai
-    PRIVATE nlohmann_json::nlohmann_json
-    PRIVATE PkgConfig::ARROW
-    PRIVATE PkgConfig::PARQUET
-    PRIVATE absl::strings
-)
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/neon_simd_test.cpp")
+    add_executable(neon_simd_test neon_simd_test.cpp)
+    target_link_libraries(neon_simd_test 
+        PRIVATE logai
+        PRIVATE nlohmann_json::nlohmann_json
+        PRIVATE PkgConfig::ARROW
+        PRIVATE PkgConfig::PARQUET
+        PRIVATE absl::strings
+    )
+    set(HAVE_NEON_SIMD_TEST TRUE)
+else()
+    set(HAVE_NEON_SIMD_TEST FALSE)
+    message(STATUS "neon_simd_test.cpp not found, skipping neon_simd_test target")
+endif()
 
 # Add DBSCAN test executable
 add_executable(dbscan_test dbscan_test.cpp)
@@ -164,24 +170,32 @@ if(NOT DEFINED DISABLE_SIMD OR NOT DISABLE_SIMD)
                 message(STATUS "ARM NEON SIMD instructions enabled")
                 target_compile_options(logai PRIVATE -march=armv8-a+simd)
                 target_compile_options(simd_test PRIVATE -march=armv8-a+simd)
-                target_compile_options(neon_simd_test PRIVATE -march=armv8-a+simd)
+                if(HAVE_NEON_SIMD_TEST)
+                    target_compile_options(neon_simd_test PRIVATE -march=armv8-a+simd)
+                endif()
                 target_compile_definitions(logai PRIVATE USE_NEON_SIMD=1)
                 target_compile_definitions(simd_test PRIVATE USE_NEON_SIMD=1)
-                target_compile_definitions(neon_simd_test PRIVATE USE_NEON_SIMD=1)
+                if(HAVE_NEON_SIMD_TEST)
+                    target_compile_definitions(neon_simd_test PRIVATE USE_NEON_SIMD=1)
+                endif()
             endif() # Fixed trailing endif
         else()
             check_cxx_compiler_flag("-mavx2" COMPILER_SUPPORTS_AVX2)
             if(COMPILER_SUPPORTS_AVX2)
                 target_compile_options(logai PRIVATE -mavx2)
                 target_compile_options(simd_test PRIVATE -mavx2)
-                target_compile_options(neon_simd_test PRIVATE -mavx2)
+                if(HAVE_NEON_SIMD_TEST)
+                    target_compile_options(neon_simd_test PRIVATE -mavx2)
+                endif()
             endif() # Fixed trailing endif
             # Check for SSE4.2 support
             check_cxx_compiler_flag("-msse4.2" COMPILER_SUPPORTS_SSE42)
             if(COMPILER_SUPPORTS_SSE42)
                 target_compile_options(logai PRIVATE -msse4.2)
                 target_compile_options(simd_test PRIVATE -msse4.2)
-                target_compile_options(neon_simd_test PRIVATE -msse4.2)
+                if(HAVE_NEON_SIMD_TEST)
+                    target_compile_options(neon_simd_test PRIVATE -msse4.2)
+                endif()
             endif() # Fixed trailing endif
         endif() # Fixed trailing endif
     else()
@@ -189,7 +203,9 @@ if(NOT DEFINED DISABLE_SIMD OR NOT DISABLE_SIMD)
         if(MSVC)
             target_compile_options(logai PRIVATE /arch:AVX2)
             target_compile_options(simd_test PRIVATE /arch:AVX2)
-            target_compile_options(neon_simd_test PRIVATE /arch:AVX2)
+            if(HAVE_NEON_SIMD_TEST)
+                target_compile_options(neon_simd_test PRIVATE /arch:AVX2)
+            endif()
         endif() # Fixed trailing endif
     endif() # Fixed trailing endif
 else()
@@ -197,9 +213,17 @@ else()
 endif() # Fixed trailing endif
 
 # Install
-install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test 
-        logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test one_class_svm_test
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin)
+if(HAVE_NEON_SIMD_TEST)
+    install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test 
+            logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test one_class_svm_test
+            LIBRARY DESTINATION lib
+            ARCHIVE DESTINATION lib
+            RUNTIME DESTINATION bin)
+else()
+    install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test feature_extractor_test 
+            logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test one_class_svm_test
+            LIBRARY DESTINATION lib
+            ARCHIVE DESTINATION lib
+            RUNTIME DESTINATION bin)
+endif()
 install(FILES ${HEADERS} DESTINATION include/logai) 

@@ -86,9 +86,15 @@ std::unordered_map<std::string, std::string> create_group_key(
 template<typename T>
 std::shared_ptr<arrow::Array> vector_to_arrow_array(const std::vector<T>& vec) {
     arrow::NumericBuilder<typename arrow::CTypeTraits<T>::ArrowType> builder;
-    ARROW_RETURN_NOT_OK(builder.AppendValues(vec));
+    auto status = builder.AppendValues(vec);
+    if (!status.ok()) {
+        return nullptr;
+    }
     std::shared_ptr<arrow::Array> array;
-    ARROW_RETURN_NOT_OK(builder.Finish(&array));
+    status = builder.Finish(&array);
+    if (!status.ok()) {
+        return nullptr;
+    }
     return array;
 }
 
@@ -259,7 +265,23 @@ FeatureExtractionResult FeatureExtractor::convert_to_feature_vector(
                 for (size_t idx : indices) {
                     if (idx < static_cast<size_t>(column->length())) {
                         double value;
-                        if (arrow::GetDoubleValue(column, idx, &value) == arrow::Status::OK()) {
+                        // Use direct access methods instead of GetDoubleValue
+                        bool valid = false;
+                        if (column->type_id() == arrow::Type::DOUBLE) {
+                            auto double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
+                            if (!double_array->IsNull(idx)) {
+                                value = double_array->Value(idx);
+                                valid = true;
+                            }
+                        } else if (column->type_id() == arrow::Type::INT64) {
+                            auto int_array = std::static_pointer_cast<arrow::Int64Array>(column);
+                            if (!int_array->IsNull(idx)) {
+                                value = static_cast<double>(int_array->Value(idx));
+                                valid = true;
+                            }
+                        }
+                        
+                        if (valid) {
                             group_values.push_back(value);
                         }
                     }
@@ -271,9 +293,15 @@ FeatureExtractionResult FeatureExtractor::convert_to_feature_vector(
                                   group_values.size();
                     
                     auto builder = std::make_shared<arrow::DoubleBuilder>();
-                    ARROW_EXPECT_OK(builder->Append(mean));
+                    auto status = builder->Append(mean);
+                    if (!status.ok()) {
+                        continue;
+                    }
                     std::shared_ptr<arrow::Array> mean_array;
-                    ARROW_EXPECT_OK(builder->Finish(&mean_array));
+                    status = builder->Finish(&mean_array);
+                    if (!status.ok()) {
+                        continue;
+                    }
                     
                     auto existing_chunks = merged_features[col_idx]->chunks();
                     std::vector<std::shared_ptr<arrow::Array>> new_chunks = existing_chunks;

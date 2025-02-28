@@ -121,9 +121,8 @@ std::shared_ptr<arrow::Array> LabelEncoder::encode_column(
     std::unordered_map<std::string, int> mapping;
     if (fit) {
         // If fitting, create a new mapping
-        auto& mutable_mapping = const_cast<std::unordered_map<std::string, int>&>(
-            column_mappings_[column_name]
-        );
+        auto& mutable_self = const_cast<LabelEncoder&>(*this);
+        auto& mutable_mapping = mutable_self.column_mappings_[column_name];
         
         // First pass: identify unique values and assign indices
         for (int64_t i = 0; i < input_column->length(); ++i) {
@@ -137,38 +136,51 @@ std::shared_ptr<arrow::Array> LabelEncoder::encode_column(
         
         mapping = mutable_mapping;
     } else {
-        // If not fitting, use existing mapping
+        // Use existing mapping if available
         auto it = column_mappings_.find(column_name);
-        if (it == column_mappings_.end()) {
-            throw std::runtime_error("Column '" + column_name + "' not found in encoder");
+        if (it != column_mappings_.end()) {
+            mapping = it->second;
         }
-        mapping = it->second;
     }
     
-    // Create builder for the encoded array
+    // Reserve space for all elements
     arrow::Int32Builder builder;
-    ARROW_RETURN_NOT_OK(builder.Reserve(input_column->length()));
+    auto status = builder.Reserve(input_column->length());
+    if (!status.ok()) {
+        return nullptr;
+    }
     
-    // Second pass: encode values
+    // Encode the values
     for (int64_t i = 0; i < input_column->length(); ++i) {
         if (input_column->IsNull(i)) {
-            // Handle null values
-            ARROW_RETURN_NOT_OK(builder.AppendNull());
+            status = builder.AppendNull();
+            if (!status.ok()) {
+                return nullptr;
+            }
         } else {
-            std::string value = input_column->GetString(i);
+            auto value = input_column->GetString(i);
             auto it = mapping.find(value);
             if (it != mapping.end()) {
-                ARROW_RETURN_NOT_OK(builder.Append(it->second));
+                status = builder.Append(it->second);
+                if (!status.ok()) {
+                    return nullptr;
+                }
             } else {
-                // Unknown value in transform mode, append null
-                ARROW_RETURN_NOT_OK(builder.AppendNull());
+                status = builder.AppendNull();
+                if (!status.ok()) {
+                    return nullptr;
+                }
             }
         }
     }
     
-    // Finish building the array
+    // Finalize the array
     std::shared_ptr<arrow::Array> result;
-    ARROW_RETURN_NOT_OK(builder.Finish(&result));
+    status = builder.Finish(&result);
+    if (!status.ok()) {
+        return nullptr;
+    }
+    
     return result;
 }
 

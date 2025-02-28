@@ -265,7 +265,29 @@ Eigen::VectorXd OneClassSVMDetector::fit(const Eigen::MatrixXd& log_features) {
     if (params_.gamma == "auto") {
         gamma_value_ = 1.0 / log_features.cols();
     } else if (params_.gamma == "scale") {
-        gamma_value_ = 1.0 / (log_features.cols() * log_features.variance());
+        // Calculate variance manually since MatrixXd doesn't have a variance method
+        double mean = 0.0;
+        double variance = 0.0;
+        size_t count = 0;
+        
+        // Calculate mean
+        for (int i = 0; i < log_features.rows(); ++i) {
+            for (int j = 0; j < log_features.cols(); ++j) {
+                mean += log_features(i, j);
+                count++;
+            }
+        }
+        mean /= count;
+        
+        // Calculate variance
+        for (int i = 0; i < log_features.rows(); ++i) {
+            for (int j = 0; j < log_features.cols(); ++j) {
+                variance += (log_features(i, j) - mean) * (log_features(i, j) - mean);
+            }
+        }
+        variance /= count;
+        
+        gamma_value_ = 1.0 / (log_features.cols() * variance);
     } else {
         try {
             gamma_value_ = std::stod(params_.gamma);

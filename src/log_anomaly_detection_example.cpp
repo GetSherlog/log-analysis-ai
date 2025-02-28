@@ -74,11 +74,11 @@ int main(int argc, char* argv[]) {
     
     logai::DataLoaderConfig loader_config;
     loader_config.file_path = dataset_path;
-    loader_config.file_format = "text"; // Plain text log format
+    loader_config.log_type = "CSV"; // Use the correct field name and value
     
-    // Assuming HealthApp logs have a timestamp at the beginning of each line
-    loader_config.timestamp_format = "%Y-%m-%d %H:%M:%S";
-    loader_config.timestamp_pattern = "^\\[(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})\\]";
+    // Configure the log pattern for timestamp extraction
+    loader_config.datetime_format = "%Y-%m-%d %H:%M:%S";
+    loader_config.log_pattern = "^\\[(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})\\]";
     
     logai::FileDataLoader data_loader(loader_config);
     auto log_records = data_loader.load_data();
@@ -88,7 +88,7 @@ int main(int argc, char* argv[]) {
     // Display a few sample log lines
     std::cout << "Sample log lines:" << std::endl;
     for (size_t i = 0; i < std::min(size_t(5), log_records.size()); ++i) {
-        std::cout << "  " << log_records[i].content << std::endl;
+        std::cout << "  " << log_records[i].body << std::endl;  // Use body instead of content
     }
     
     //=============================================================================
@@ -99,29 +99,30 @@ int main(int argc, char* argv[]) {
     // Extract loglines for preprocessing
     std::vector<std::string> loglines;
     for (const auto& record : log_records) {
-        loglines.push_back(record.content);
+        loglines.push_back(record.body);  // Use body instead of content
     }
     
-    // Configure preprocessor to retrieve IP addresses
+    // Configure preprocessor
     logai::PreprocessorConfig preprocessor_config;
-    preprocessor_config.custom_regex_patterns = {
-        {"\\d+\\.\\d+\\.\\d+\\.\\d+", "<IP>"}  // Replace IP addresses with <IP> tag
+    preprocessor_config.enable_preprocessing = true;
+    preprocessor_config.custom_delimiters_regex = {  // Use correct field for regex patterns
+        {"ipv4", "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"},
+        {"ipv6", "([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}"},
+        {"timestamp", "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"}
     };
     
+    // Create preprocessor and process logs
     logai::Preprocessor preprocessor(preprocessor_config);
+    std::vector<std::string> clean_logs;
+    std::vector<std::string> detected_patterns;
     
-    auto start_time = std::chrono::high_resolution_clock::now();
-    auto [clean_logs, patterns] = preprocessor.clean_logs(loglines);
-    auto end_time = std::chrono::high_resolution_clock::now();
-    
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    std::cout << "Preprocessing completed in " << duration << " ms." << std::endl;
-    std::cout << "Extracted " << patterns.size() << " patterns." << std::endl;
-    
-    // Display sample preprocessed logs
-    std::cout << "Sample preprocessed logs:" << std::endl;
-    for (size_t i = 0; i < std::min(size_t(5), clean_logs.size()); ++i) {
-        std::cout << "  " << clean_logs[i] << std::endl;
+    // Process each log line individually
+    for (const auto& log_line : loglines) {
+        auto [clean_line, patterns] = preprocessor.clean_log_line(log_line);
+        clean_logs.push_back(clean_line);
+        for (const auto& pattern : patterns) {
+            detected_patterns.push_back(pattern);
+        }
     }
     
     //=============================================================================
@@ -140,7 +141,7 @@ int main(int argc, char* argv[]) {
     std::vector<logai::LogRecordObject> parsed_records;
     std::vector<std::string> parsed_templates;
     
-    start_time = std::chrono::high_resolution_clock::now();
+    auto start_time = std::chrono::high_resolution_clock::now();
     
     for (size_t i = 0; i < clean_logs.size(); ++i) {
         auto parsed_record = parser.parse_line(clean_logs[i]);
@@ -148,8 +149,8 @@ int main(int argc, char* argv[]) {
         parsed_templates.push_back(parsed_record.template_str);
     }
     
-    end_time = std::chrono::high_resolution_clock::now();
-    duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
     
     std::cout << "Parsing completed in " << duration << " ms." << std::endl;
     std::cout << "Extracted template examples:" << std::endl;
@@ -269,8 +270,8 @@ int main(int argc, char* argv[]) {
     
     // Use LogBERT vectorizer (instead of Word2Vec in the Python example)
     logai::LogBERTVectorizerConfig vectorizer_config;
-    vectorizer_config.max_sequence_length = 32;  // Typical log length
-    vectorizer_config.vocabulary_size = 5000;    // Start with a reasonable vocabulary size
+    vectorizer_config.max_seq_length = 32;  // Use max_seq_length instead of max_sequence_length
+    vectorizer_config.vocab_size = 5000;    // Use vocab_size instead of vocabulary_size
     
     // Create and train the vectorizer
     logai::LogBERTVectorizer vectorizer(vectorizer_config);
@@ -284,8 +285,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Vectorization completed in " << duration << " ms." << std::endl;
     
     // Display sample vector dimensions
-    std::cout << "Vector dimensions: each log template is represented by a vector of length up to " 
-              << vectorizer_config.max_sequence_length << std::endl;
+    std::cout << "Max sequence length: " << vectorizer_config.max_seq_length << std::endl;
     
     //=============================================================================
     // Step 7: Categorical Encoding for Log Attributes
@@ -377,7 +377,7 @@ int main(int argc, char* argv[]) {
         if (semantic_anomaly_scores(i) < 0) {
             int original_idx = semantic_train.rows() + i;
             std::cout << "  Log template: " << parsed_templates[original_idx] << std::endl;
-            std::cout << "  Original log: " << log_records[original_idx].content << std::endl;
+            std::cout << "  Original log: " << log_records[original_idx].body << std::endl;
             std::cout << std::endl;
             samples_shown++;
         }
@@ -391,7 +391,7 @@ int main(int argc, char* argv[]) {
     // Configure DBSCAN
     logai::DbScanParams dbscan_params;
     dbscan_params.eps = 0.5;      // Distance threshold
-    dbscan_params.min_points = 5; // Minimum points to form a cluster
+    dbscan_params.min_samples = 5; // Use correct field name min_samples instead of min_points
     
     // Create and run DBSCAN
     logai::DbScanClustering dbscan(dbscan_params);
@@ -437,71 +437,71 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-// Helper function to convert log records to Arrow table
+// Helper function to convert log records to an Arrow table
 std::shared_ptr<arrow::Table> log_records_to_arrow_table(
     const std::vector<logai::LogRecordObject>& records) {
-    
-    // This is a simplified version - in a real implementation, 
-    // you would extract all attributes from the log records
-    
-    // Create builders for columns
-    arrow::StringBuilder template_builder;
-    arrow::StringBuilder content_builder;
-    
-    // Add data to builders
-    for (const auto& record : records) {
-        ARROW_RETURN_NOT_OK(template_builder.Append(record.template_str));
-        ARROW_RETURN_NOT_OK(content_builder.Append(record.content));
+    if (records.empty()) {
+        return nullptr;
     }
     
-    // Finalize arrays
-    std::shared_ptr<arrow::Array> template_array;
-    ARROW_RETURN_NOT_OK(template_builder.Finish(&template_array));
+    // Create arrow string arrays for each field
+    arrow::StringBuilder body_builder;
     
-    std::shared_ptr<arrow::Array> content_array;
-    ARROW_RETURN_NOT_OK(content_builder.Finish(&content_array));
+    // Reserve space to avoid reallocations
+    auto status = body_builder.Reserve(records.size());
+    if (!status.ok()) {
+        std::cerr << "Failed to reserve space for body array: " << status.ToString() << std::endl;
+        return nullptr;
+    }
     
-    // Create schema
+    // Add each record to the builders
+    for (const auto& record : records) {
+        status = body_builder.Append(record.body);
+        if (!status.ok()) {
+            std::cerr << "Failed to append to body array: " << status.ToString() << std::endl;
+            return nullptr;
+        }
+    }
+    
+    // Finalize the arrays
+    std::shared_ptr<arrow::Array> body_array;
+    status = body_builder.Finish(&body_array);
+    if (!status.ok()) {
+        std::cerr << "Failed to finalize body array: " << status.ToString() << std::endl;
+        return nullptr;
+    }
+    
+    // Create schema and fields
     auto schema = arrow::schema({
-        arrow::field("template", arrow::utf8()),
-        arrow::field("content", arrow::utf8())
+        arrow::field("body", arrow::utf8())
     });
     
-    // Create table
-    return arrow::Table::Make(schema, {template_array, content_array});
+    // Create table with arrays
+    auto table = arrow::Table::Make(schema, {body_array});
+    
+    return table;
 }
 
-// Dummy implementation of convert_to_feature_vector
-std::pair<std::vector<std::chrono::system_clock::time_point>, Eigen::MatrixXd> 
-logai::FeatureExtractor::convert_to_feature_vector(
-    const std::vector<std::vector<int>>& log_vectors,
-    const std::shared_ptr<arrow::Table>& attributes) {
+// Helper function to convert token sequences to matrix
+Eigen::MatrixXd convert_tokens_to_matrix(
+    const std::vector<std::vector<int>>& token_sequences, 
+    int max_features) {
+    size_t num_samples = token_sequences.size();
     
-    // In a real implementation, this would combine log vectors and attributes
-    // into a single feature matrix. For this example, we'll create a simplified version.
-    
-    int num_samples = log_vectors.size();
-    int max_features = std::min(100, static_cast<int>(log_vectors[0].size()));
-    
+    // Create feature matrix
     Eigen::MatrixXd feature_matrix(num_samples, max_features);
     
-    // Fill matrix with log vector values
-    for (int i = 0; i < num_samples; ++i) {
+    // Fill matrix with token ids (padding or truncating as needed)
+    for (size_t i = 0; i < num_samples; ++i) {
+        const auto& tokens = token_sequences[i];
         for (int j = 0; j < max_features; ++j) {
-            if (j < log_vectors[i].size()) {
-                feature_matrix(i, j) = log_vectors[i][j];
+            if (j < static_cast<int>(tokens.size())) {
+                feature_matrix(i, j) = tokens[j];
             } else {
                 feature_matrix(i, j) = 0;  // Padding
             }
         }
     }
     
-    // Create dummy timestamps (we don't use them in this example)
-    std::vector<std::chrono::system_clock::time_point> timestamps(num_samples);
-    auto now = std::chrono::system_clock::now();
-    for (int i = 0; i < num_samples; ++i) {
-        timestamps[i] = now + std::chrono::seconds(i);
-    }
-    
-    return {timestamps, feature_matrix};
+    return feature_matrix;
 } 
