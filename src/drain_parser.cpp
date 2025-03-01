@@ -125,6 +125,7 @@ public:
         
         // Fill the log record
         record.body = std::string(preprocessed_line);
+        record.template_str = cluster->log_template;  // Set the template string
         record.attributes = std::move(parameters);
         
         // Extract timestamp and severity if available

@@ -6,6 +6,7 @@
 #include "label_encoder.h"
 #include <algorithm>
 #include <stdexcept>
+#include <iostream>
 #include <arrow/array.h>
 #include <arrow/builder.h>
 #include <arrow/compute/api.h>

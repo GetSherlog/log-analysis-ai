@@ -6,6 +6,7 @@
 #include <chrono>
 #include <string>
 #include <sstream>
+#include <iostream>
 #include <arrow/api.h>
 #include <arrow/compute/api.h>
 #include <arrow/builder.h>
@@ -265,14 +266,14 @@ FeatureExtractionResult FeatureExtractor::convert_to_feature_vector(
                 for (size_t idx : indices) {
                     if (idx < static_cast<size_t>(column->length())) {
                         double value;
-                        if (column->type_id() == arrow::Type::DOUBLE) {
-                            auto double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
+                        if (column->type()->id() == arrow::Type::DOUBLE) {
+                            auto double_array = std::static_pointer_cast<arrow::NumericArray<arrow::DoubleType>>(column->chunk(0));
                             if (!double_array->IsNull(idx)) {
                                 value = double_array->Value(idx);
                                 group_values.push_back(value);
                             }
-                        } else if (column->type_id() == arrow::Type::INT64) {
-                            auto int_array = std::static_pointer_cast<arrow::Int64Array>(column);
+                        } else if (column->type()->id() == arrow::Type::INT64) {
+                            auto int_array = std::static_pointer_cast<arrow::NumericArray<arrow::Int64Type>>(column->chunk(0));
                             if (!int_array->IsNull(idx)) {
                                 value = static_cast<double>(int_array->Value(idx));
                                 group_values.push_back(value);
