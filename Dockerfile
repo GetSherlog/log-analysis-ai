@@ -176,7 +176,9 @@ RUN mkdir -p build && cd build \
           -DCMAKE_PREFIX_PATH="/usr/local/lib/cmake" \
           .. \
     && make -j$(nproc) \
-    && cp bin/logai_web_server /usr/local/bin/ \
+    && ls -la bin || echo "bin directory not found" \
+    && find . -name "logai_web_server" -type f \
+    && cp $(find . -name "logai_web_server" -type f | head -n 1) /usr/local/bin/ || echo "Failed to copy logai_web_server" \
     && mkdir -p /usr/local/share/logai \
     && cp -r ../src/web_server/web/* /usr/local/share/logai/
 
