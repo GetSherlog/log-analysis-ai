@@ -16,21 +16,34 @@ std::shared_ptr<arrow::Table> create_test_table() {
     arrow::StringBuilder value_builder;
     
     // Add data to the category column
-    ARROW_RETURN_NOT_OK(category_builder.AppendValues({
+    auto status = category_builder.AppendValues({
         "A", "B", "C", "A", "B", "A", "C", "B", "C", "A"
-    }));
+    });
+    if (!status.ok()) {
+        throw std::runtime_error("Failed to append category values: " + status.ToString());
+    }
     
     // Add data to the value column
-    ARROW_RETURN_NOT_OK(value_builder.AppendValues({
+    status = value_builder.AppendValues({
         "apple", "banana", "cherry", "apple", "banana", 
         "avocado", "cherry", "blueberry", "cherry", "apple"
-    }));
+    });
+    if (!status.ok()) {
+        throw std::runtime_error("Failed to append value values: " + status.ToString());
+    }
     
     // Finish building arrays
     std::shared_ptr<arrow::Array> category_array;
     std::shared_ptr<arrow::Array> value_array;
-    ARROW_RETURN_NOT_OK(category_builder.Finish(&category_array));
-    ARROW_RETURN_NOT_OK(value_builder.Finish(&value_array));
+    status = category_builder.Finish(&category_array);
+    if (!status.ok()) {
+        throw std::runtime_error("Failed to finish category array: " + status.ToString());
+    }
+    
+    status = value_builder.Finish(&value_array);
+    if (!status.ok()) {
+        throw std::runtime_error("Failed to finish value array: " + status.ToString());
+    }
     
     // Create table schema
     auto schema = arrow::schema({
@@ -45,8 +58,14 @@ std::shared_ptr<arrow::Table> create_test_table() {
 void print_table(const std::shared_ptr<arrow::Table>& table) {
     std::cout << "Table contents:\n";
     arrow::PrettyPrintOptions options;
-    options.n_rows = table->num_rows();
-    arrow::PrettyPrint(*table, options, &std::cout);
+    // Fix: n_rows doesn't exist in PrettyPrintOptions
+    // Use the correct property or don't set it to show all rows
+    
+    // Call PrettyPrint and check its status
+    auto status = arrow::PrettyPrint(*table, options, &std::cout);
+    if (!status.ok()) {
+        std::cerr << "Error printing table: " << status.ToString() << std::endl;
+    }
     std::cout << std::endl;
 }
 
@@ -79,12 +98,18 @@ int main() {
         
         // Create a new table to test transform
         arrow::StringBuilder new_category_builder;
-        ARROW_RETURN_NOT_OK(new_category_builder.AppendValues({
+        auto status = new_category_builder.AppendValues({
             "A", "B", "C", "D"  // 'D' is a new value not seen during fitting
-        }));
+        });
+        if (!status.ok()) {
+            throw std::runtime_error("Failed to append new category values: " + status.ToString());
+        }
         
         std::shared_ptr<arrow::Array> new_category_array;
-        ARROW_RETURN_NOT_OK(new_category_builder.Finish(&new_category_array));
+        status = new_category_builder.Finish(&new_category_array);
+        if (!status.ok()) {
+            throw std::runtime_error("Failed to finish new category array: " + status.ToString());
+        }
         
         auto new_schema = arrow::schema({
             arrow::field("category", arrow::utf8())

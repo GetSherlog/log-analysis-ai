@@ -177,9 +177,8 @@ RUN mkdir -p build && cd build \
           .. \
     && make -j$(nproc) \
     && cp bin/logai_web_server /usr/local/bin/ \
-    && mkdir -p /usr/local/share/logai/api \
-    && cp -r ../web/public/* /usr/local/share/logai/ \
-    && cp -r ../web/api/* /usr/local/share/logai/api/
+    && mkdir -p /usr/local/share/logai \
+    && cp -r ../src/web_server/web/* /usr/local/share/logai/
 
 # Install Curl for health check
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*

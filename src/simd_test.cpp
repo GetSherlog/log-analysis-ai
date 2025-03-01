@@ -48,7 +48,7 @@ std::vector<std::string> generate_logs(size_t count, size_t avg_line_length) {
             oss << templates[template_idx];
             
             // Replace placeholders with random data
-            std::string& log = oss.str();
+            std::string log = oss.str();
             size_t pos = 0;
             while ((pos = log.find('%', pos)) != std::string::npos) {
                 size_t end_pos = log.find('%', pos + 1);

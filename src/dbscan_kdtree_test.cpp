@@ -224,7 +224,7 @@ void test_scalability() {
         auto duration_kdtree = std::chrono::duration_cast<std::chrono::milliseconds>(end_kdtree - start_kdtree);
         
         // Calculate speed improvement
-        float speedup = (float)duration_regular.count() / std::max(1LL, duration_kdtree.count());
+        float speedup = (float)duration_regular.count() / std::max(1L, (long)duration_kdtree.count());
         
         // Print results
         std::cout << size << "\t\t" << duration_regular.count() << "\t\t\t" << duration_kdtree.count() 

@@ -182,7 +182,7 @@ void test_feature_vector() {
             std::cout << "  Features: ";
             for (int j = 0; j < std::min(5, result.feature_vectors->num_columns()); ++j) {
                 double value;
-                if (GetDoubleValue(result.feature_vectors->column(j)->chunk(0), i, &value) == arrow::Status::OK()) {
+                if (GetDoubleValue(result.feature_vectors->column(j), i, &value) == arrow::Status::OK()) {
                     std::cout << value << " ";
                 }
             }
