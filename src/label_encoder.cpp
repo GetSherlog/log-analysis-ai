@@ -118,66 +118,69 @@ std::shared_ptr<arrow::Array> LabelEncoder::encode_column(
     bool fit) const {
     
     // Get or create mapping for this column
-    std::unordered_map<std::string, int> mapping;
     if (fit) {
         // If fitting, create a new mapping
         auto& mutable_self = const_cast<LabelEncoder&>(*this);
-        auto& mutable_mapping = mutable_self.column_mappings_[column_name];
         
         // First pass: identify unique values and assign indices
         for (int64_t i = 0; i < input_column->length(); ++i) {
             if (!input_column->IsNull(i)) {
                 std::string value = input_column->GetString(i);
-                if (mutable_mapping.find(value) == mutable_mapping.end()) {
-                    mutable_mapping[value] = static_cast<int>(mutable_mapping.size());
+                if (mutable_self.column_mappings_[column_name].find(value) == mutable_self.column_mappings_[column_name].end()) {
+                    mutable_self.column_mappings_[column_name][value] = static_cast<int>(mutable_self.column_mappings_[column_name].size());
                 }
             }
         }
-        
-        mapping = mutable_mapping;
-    } else {
-        // Use existing mapping if available
-        auto it = column_mappings_.find(column_name);
-        if (it != column_mappings_.end()) {
-            mapping = it->second;
-        }
     }
     
-    // Reserve space for all elements
+    // Create output array
     arrow::Int32Builder builder;
     auto status = builder.Reserve(input_column->length());
     if (!status.ok()) {
+        std::cerr << "Failed to reserve memory for builder: " << status.ToString() << std::endl;
         return nullptr;
     }
     
-    // Encode the values
+    // Second pass: encode values using the mapping
     for (int64_t i = 0; i < input_column->length(); ++i) {
         if (input_column->IsNull(i)) {
             status = builder.AppendNull();
             if (!status.ok()) {
+                std::cerr << "Failed to append null: " << status.ToString() << std::endl;
                 return nullptr;
             }
         } else {
-            auto value = input_column->GetString(i);
-            auto it = mapping.find(value);
-            if (it != mapping.end()) {
-                status = builder.Append(it->second);
-                if (!status.ok()) {
-                    return nullptr;
+            std::string value = input_column->GetString(i);
+            auto mapping_it = column_mappings_.find(column_name);
+            if (mapping_it != column_mappings_.end()) {
+                auto it = mapping_it->second.find(value);
+                if (it != mapping_it->second.end()) {
+                    status = builder.Append(it->second);
+                    if (!status.ok()) {
+                        std::cerr << "Failed to append value: " << status.ToString() << std::endl;
+                        return nullptr;
+                    }
+                } else {
+                    status = builder.AppendNull();
+                    if (!status.ok()) {
+                        std::cerr << "Failed to append null: " << status.ToString() << std::endl;
+                        return nullptr;
+                    }
                 }
             } else {
                 status = builder.AppendNull();
                 if (!status.ok()) {
+                    std::cerr << "Failed to append null: " << status.ToString() << std::endl;
                     return nullptr;
                 }
             }
         }
     }
     
-    // Finalize the array
     std::shared_ptr<arrow::Array> result;
     status = builder.Finish(&result);
     if (!status.ok()) {
+        std::cerr << "Failed to finish builder: " << status.ToString() << std::endl;
         return nullptr;
     }
     

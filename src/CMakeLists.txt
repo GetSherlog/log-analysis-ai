@@ -214,16 +214,37 @@ endif() # Fixed trailing endif
 
 # Install
 if(HAVE_NEON_SIMD_TEST)
-    install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test neon_simd_test feature_extractor_test 
-            logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test one_class_svm_test
+    install(TARGETS logai
             LIBRARY DESTINATION lib
-            ARCHIVE DESTINATION lib
-            RUNTIME DESTINATION bin)
+            ARCHIVE DESTINATION lib)
+    
+    # Install executables that were successfully built
+    foreach(target perf_test large_perf_test preprocessor_test simd_test neon_simd_test 
+                  feature_extractor_test logbert_test logbert_unit_test dbscan_test 
+                  dbscan_kdtree_test label_encoder_test one_class_svm_test)
+        if(TARGET ${target})
+            install(TARGETS ${target}
+                    RUNTIME DESTINATION bin)
+        else()
+            message(STATUS "Target ${target} not built, skipping installation")
+        endif()
+    endforeach()
 else()
-    install(TARGETS logai perf_test large_perf_test preprocessor_test simd_test feature_extractor_test 
-            logbert_test logbert_unit_test dbscan_test dbscan_kdtree_test label_encoder_test one_class_svm_test
+    install(TARGETS logai
             LIBRARY DESTINATION lib
-            ARCHIVE DESTINATION lib
-            RUNTIME DESTINATION bin)
+            ARCHIVE DESTINATION lib)
+    
+    # Install executables that were successfully built
+    foreach(target perf_test large_perf_test preprocessor_test simd_test
+                  feature_extractor_test logbert_test logbert_unit_test dbscan_test 
+                  dbscan_kdtree_test label_encoder_test one_class_svm_test)
+        if(TARGET ${target})
+            install(TARGETS ${target}
+                    RUNTIME DESTINATION bin)
+        else()
+            message(STATUS "Target ${target} not built, skipping installation")
+        endif()
+    endforeach()
 endif()
+
 install(FILES ${HEADERS} DESTINATION include/logai) 

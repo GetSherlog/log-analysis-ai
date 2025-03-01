@@ -74,7 +74,7 @@ int main(int argc, char* argv[]) {
     
     logai::DataLoaderConfig loader_config;
     loader_config.file_path = dataset_path;
-    loader_config.log_type = "CSV"; // Use the correct field name and value
+    loader_config.log_type = "CSV"; // Already correct in code
     
     // Configure the log pattern for timestamp extraction
     loader_config.datetime_format = "%Y-%m-%d %H:%M:%S";
@@ -84,11 +84,9 @@ int main(int argc, char* argv[]) {
     auto log_records = data_loader.load_data();
     
     std::cout << "Loaded " << log_records.size() << " log records." << std::endl;
-    
-    // Display a few sample log lines
-    std::cout << "Sample log lines:" << std::endl;
-    for (size_t i = 0; i < std::min(size_t(5), log_records.size()); ++i) {
-        std::cout << "  " << log_records[i].body << std::endl;  // Use body instead of content
+    std::cout << "First 5 log records:" << std::endl;
+    for (size_t i = 0; i < std::min<size_t>(5, log_records.size()); ++i) {
+        std::cout << "  " << log_records[i].body << std::endl;
     }
     
     //=============================================================================
@@ -96,34 +94,21 @@ int main(int argc, char* argv[]) {
     //=============================================================================
     std::cout << "\n## Step 2: Preprocess" << std::endl;
     
-    // Extract loglines for preprocessing
+    // Convert log records to log lines for preprocessing
     std::vector<std::string> loglines;
     for (const auto& record : log_records) {
-        loglines.push_back(record.body);  // Use body instead of content
+        loglines.push_back(record.body);
     }
     
-    // Configure preprocessor
+    // Now the preprocessor config using the correct field names
     logai::PreprocessorConfig preprocessor_config;
-    preprocessor_config.enable_preprocessing = true;
-    preprocessor_config.custom_delimiters_regex = {  // Use correct field for regex patterns
-        {"ipv4", "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"},
-        {"ipv6", "([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}"},
-        {"timestamp", "\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}"}
+    preprocessor_config.custom_delimiters_regex = {
+        {"IP", "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"},
+        {"UUID", "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"}
     };
     
-    // Create preprocessor and process logs
     logai::Preprocessor preprocessor(preprocessor_config);
-    std::vector<std::string> clean_logs;
-    std::vector<std::string> detected_patterns;
-    
-    // Process each log line individually
-    for (const auto& log_line : loglines) {
-        auto [clean_line, patterns] = preprocessor.clean_log_line(log_line);
-        clean_logs.push_back(clean_line);
-        for (const auto& pattern : patterns) {
-            detected_patterns.push_back(pattern);
-        }
-    }
+    auto cleaned_logs = preprocessor.clean_log_line(loglines);
     
     //=============================================================================
     // Step 3: Parsing
@@ -143,8 +128,8 @@ int main(int argc, char* argv[]) {
     
     auto start_time = std::chrono::high_resolution_clock::now();
     
-    for (size_t i = 0; i < clean_logs.size(); ++i) {
-        auto parsed_record = parser.parse_line(clean_logs[i]);
+    for (size_t i = 0; i < cleaned_logs.size(); ++i) {
+        auto parsed_record = parser.parse_line(cleaned_logs[i]);
         parsed_records.push_back(parsed_record);
         parsed_templates.push_back(parsed_record.template_str);
     }
@@ -388,12 +373,11 @@ int main(int argc, char* argv[]) {
     //=============================================================================
     std::cout << "\n## Alternative: DBSCAN Clustering for Anomaly Detection" << std::endl;
     
-    // Configure DBSCAN
-    logai::DbScanParams dbscan_params;
-    dbscan_params.eps = 0.5;      // Distance threshold
-    dbscan_params.min_samples = 5; // Use correct field name min_samples instead of min_points
+    // Update DBSCAN parameters with correct field names
+    logai::DbScanClustering::Params dbscan_params;
+    dbscan_params.eps = 0.5; // Epsilon radius for neighborhood
+    dbscan_params.min_samples = 5; // Minimum points to form a cluster
     
-    // Create and run DBSCAN
     logai::DbScanClustering dbscan(dbscan_params);
     
     start_time = std::chrono::high_resolution_clock::now();
@@ -440,46 +424,39 @@ int main(int argc, char* argv[]) {
 // Helper function to convert log records to an Arrow table
 std::shared_ptr<arrow::Table> log_records_to_arrow_table(
     const std::vector<logai::LogRecordObject>& records) {
-    if (records.empty()) {
-        return nullptr;
-    }
     
-    // Create arrow string arrays for each field
-    arrow::StringBuilder body_builder;
+    arrow::StringBuilder content_builder;
     
-    // Reserve space to avoid reallocations
-    auto status = body_builder.Reserve(records.size());
+    // Reserve space for all elements
+    auto status = content_builder.Reserve(records.size());
     if (!status.ok()) {
-        std::cerr << "Failed to reserve space for body array: " << status.ToString() << std::endl;
+        std::cerr << "Failed to reserve memory for content builder: " << status.ToString() << std::endl;
         return nullptr;
     }
     
-    // Add each record to the builders
+    // Create arrays from records
     for (const auto& record : records) {
-        status = body_builder.Append(record.body);
+        status = content_builder.Append(record.body);
         if (!status.ok()) {
-            std::cerr << "Failed to append to body array: " << status.ToString() << std::endl;
+            std::cerr << "Failed to append to content builder: " << status.ToString() << std::endl;
             return nullptr;
         }
     }
     
-    // Finalize the arrays
-    std::shared_ptr<arrow::Array> body_array;
-    status = body_builder.Finish(&body_array);
+    // Finish building arrays
+    std::shared_ptr<arrow::StringArray> content_array;
+    status = content_builder.Finish(&content_array);
     if (!status.ok()) {
-        std::cerr << "Failed to finalize body array: " << status.ToString() << std::endl;
+        std::cerr << "Failed to finish content builder: " << status.ToString() << std::endl;
         return nullptr;
     }
     
-    // Create schema and fields
-    auto schema = arrow::schema({
-        arrow::field("body", arrow::utf8())
-    });
+    // Create schema
+    auto field_content = arrow::field("content", arrow::utf8());
+    auto schema = arrow::schema({field_content});
     
-    // Create table with arrays
-    auto table = arrow::Table::Make(schema, {body_array});
-    
-    return table;
+    // Create table
+    return arrow::Table::Make(schema, {content_array});
 }
 
 // Helper function to convert token sequences to matrix

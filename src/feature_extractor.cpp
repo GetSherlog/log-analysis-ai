@@ -265,24 +265,18 @@ FeatureExtractionResult FeatureExtractor::convert_to_feature_vector(
                 for (size_t idx : indices) {
                     if (idx < static_cast<size_t>(column->length())) {
                         double value;
-                        // Use direct access methods instead of GetDoubleValue
-                        bool valid = false;
                         if (column->type_id() == arrow::Type::DOUBLE) {
                             auto double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
                             if (!double_array->IsNull(idx)) {
                                 value = double_array->Value(idx);
-                                valid = true;
+                                group_values.push_back(value);
                             }
                         } else if (column->type_id() == arrow::Type::INT64) {
                             auto int_array = std::static_pointer_cast<arrow::Int64Array>(column);
                             if (!int_array->IsNull(idx)) {
                                 value = static_cast<double>(int_array->Value(idx));
-                                valid = true;
+                                group_values.push_back(value);
                             }
-                        }
-                        
-                        if (valid) {
-                            group_values.push_back(value);
                         }
                     }
                 }
@@ -295,7 +289,8 @@ FeatureExtractionResult FeatureExtractor::convert_to_feature_vector(
                     auto builder = std::make_shared<arrow::DoubleBuilder>();
                     auto status = builder->Append(mean);
                     if (!status.ok()) {
-                        continue;
+                        // Handle error
+                        std::cerr << "Error appending value: " << status.ToString() << std::endl;
                     }
                     std::shared_ptr<arrow::Array> mean_array;
                     status = builder->Finish(&mean_array);

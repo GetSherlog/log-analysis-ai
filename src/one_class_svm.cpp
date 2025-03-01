@@ -282,7 +282,8 @@ Eigen::VectorXd OneClassSVMDetector::fit(const Eigen::MatrixXd& log_features) {
         // Calculate variance
         for (int i = 0; i < log_features.rows(); ++i) {
             for (int j = 0; j < log_features.cols(); ++j) {
-                variance += (log_features(i, j) - mean) * (log_features(i, j) - mean);
+                double diff = log_features(i, j) - mean;
+                variance += diff * diff;
             }
         }
         variance /= count;
@@ -292,7 +293,7 @@ Eigen::VectorXd OneClassSVMDetector::fit(const Eigen::MatrixXd& log_features) {
         try {
             gamma_value_ = std::stod(params_.gamma);
         } catch (const std::exception& e) {
-            throw std::invalid_argument("Invalid gamma parameter: " + params_.gamma);
+            throw std::invalid_argument("Invalid gamma value: " + params_.gamma);
         }
     }
     
