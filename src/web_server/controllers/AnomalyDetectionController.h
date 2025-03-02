@@ -19,7 +19,8 @@ namespace web {
  * @class AnomalyDetectionController
  * @brief Controller for log anomaly detection related endpoints
  */
-class AnomalyDetectionController : public drogon::HttpController<AnomalyDetectionController, false> {
+class AnomalyDetectionController : public drogon::HttpController<AnomalyDetectionController, false>,
+                                 public ApiController {
 public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(AnomalyDetectionController::extractFeatures, "/api/features/extract", drogon::Post);
@@ -64,7 +65,6 @@ public:
                         std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
 private:
-    std::shared_ptr<ApiController> apiController_;
     std::unique_ptr<FeatureExtractor> featureExtractor_;
     std::unique_ptr<LabelEncoder> labelEncoder_;
     std::unique_ptr<LogbertVectorizer> logbertVectorizer_;

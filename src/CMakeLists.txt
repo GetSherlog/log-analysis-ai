@@ -31,7 +31,7 @@ target_link_libraries(logai
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
-    PRIVATE ${EIGEN3_LIBRARIES}
+    PRIVATE Eigen3::Eigen
 )
 
 # Add performance test executable
@@ -42,6 +42,7 @@ target_link_libraries(perf_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add large file performance test executable
@@ -52,6 +53,7 @@ target_link_libraries(large_perf_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add preprocessor test executable
@@ -62,6 +64,7 @@ target_link_libraries(preprocessor_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add feature extractor test executable
@@ -72,6 +75,7 @@ target_link_libraries(feature_extractor_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add SIMD optimization test executable
@@ -82,6 +86,7 @@ target_link_libraries(simd_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add NEON SIMD optimization test executable
@@ -93,6 +98,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/neon_simd_test.cpp")
         PRIVATE PkgConfig::ARROW
         PRIVATE PkgConfig::PARQUET
         PRIVATE absl::strings
+        PRIVATE Eigen3::Eigen
     )
     set(HAVE_NEON_SIMD_TEST TRUE)
 else()
@@ -108,6 +114,7 @@ target_link_libraries(dbscan_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add KD-tree optimized DBSCAN test executable
@@ -118,6 +125,7 @@ target_link_libraries(dbscan_kdtree_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add LogBERT test executable
@@ -128,6 +136,7 @@ target_link_libraries(logbert_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add LogBERT unit test executable
@@ -138,6 +147,7 @@ target_link_libraries(logbert_unit_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # Add label encoder test executable
@@ -148,12 +158,19 @@ target_link_libraries(label_encoder_test
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
 )
 
 # For One-Class SVM test
 add_executable(one_class_svm_test one_class_svm_test.cpp)
-target_link_libraries(one_class_svm_test PRIVATE logai PkgConfig::ARROW PkgConfig::PARQUET absl::strings
-                     ${Eigen3_LIBRARIES} nlohmann_json::nlohmann_json)
+target_link_libraries(one_class_svm_test 
+    PRIVATE logai
+    PRIVATE nlohmann_json::nlohmann_json
+    PRIVATE PkgConfig::ARROW
+    PRIVATE PkgConfig::PARQUET
+    PRIVATE absl::strings
+    PRIVATE Eigen3::Eigen
+)
 
 # Enable SIMD optimizations
 # Add compiler-specific flags for SIMD

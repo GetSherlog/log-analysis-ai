@@ -17,6 +17,13 @@ elseif(MSVC)
 endif()
 
 # Find dependencies
+# Find Abseil
+find_package(absl CONFIG REQUIRED)
+
+# Find Eigen
+find_package(Eigen3 3.4 REQUIRED NO_MODULE)
+message(STATUS "Found Eigen3: ${EIGEN3_VERSION}")
+
 # JSON library
 find_package(nlohmann_json QUIET)
 if(NOT nlohmann_json_FOUND)

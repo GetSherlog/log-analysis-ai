@@ -7,8 +7,17 @@ cmake_minimum_required(VERSION 3.10)
 file(GLOB_RECURSE SERVER_SOURCES "*.cpp")
 file(GLOB_RECURSE SERVER_HEADERS "*.h")
 
-# Find Drogon package
-find_package(Drogon REQUIRED)
+# Find required packages
+# Only find Drogon if it hasn't been found yet
+if(NOT TARGET Drogon::Drogon)
+    find_package(Drogon REQUIRED)
+endif()
+
+# Find Abseil
+find_package(absl CONFIG REQUIRED)
+
+# Find Eigen
+find_package(Eigen3 REQUIRED)
 
 # Create the web server executable
 add_executable(logai_web_server ${SERVER_SOURCES} ${SERVER_HEADERS})
@@ -35,7 +44,7 @@ target_link_libraries(logai_web_server
     PRIVATE PkgConfig::ARROW
     PRIVATE PkgConfig::PARQUET
     PRIVATE absl::strings
-    PRIVATE ${EIGEN3_LIBRARIES}
+    PRIVATE Eigen3::Eigen
 )
 
 # Installation

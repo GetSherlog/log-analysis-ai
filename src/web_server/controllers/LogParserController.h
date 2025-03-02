@@ -16,7 +16,8 @@ namespace web {
  * @class LogParserController
  * @brief Controller for log parsing related endpoints
  */
-class LogParserController : public drogon::HttpController<LogParserController, false> {
+class LogParserController : public drogon::HttpController<LogParserController, false>,
+                         public ApiController {
 public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(LogParserController::parseDrain, "/api/parser/drain", drogon::Post);

@@ -12,8 +12,7 @@ namespace logai {
 namespace web {
 
 LogParserController::LogParserController() 
-    : apiController_(std::make_shared<ApiController>()),
-      drainParser_(std::make_unique<DrainParser>()) {
+    : drainParser_(std::make_unique<DrainParser>()) {
     // Initialize DrainParser with default settings
     // These can be made configurable as needed
     drainParser_->setDepth(4);
@@ -26,14 +25,14 @@ void LogParserController::parseDrain(
     
     // Parse request JSON
     json requestJson;
-    if (!apiController_->parseJsonBody(req, requestJson)) {
-        callback(apiController_->createErrorResponse("Invalid JSON in request body"));
+    if (!parseJsonBody(req, requestJson)) {
+        callback(createErrorResponse("Invalid JSON in request body"));
         return;
     }
     
     // Validate request
     if (!requestJson.contains("logLines") || !requestJson["logLines"].is_array()) {
-        callback(apiController_->createErrorResponse("Request must contain 'logLines' array"));
+        callback(createErrorResponse("Request must contain 'logLines' array"));
         return;
     }
     
@@ -46,7 +45,7 @@ void LogParserController::parseDrain(
     }
     
     if (logLines.empty()) {
-        callback(apiController_->createErrorResponse("No valid log lines provided"));
+        callback(createErrorResponse("No valid log lines provided"));
         return;
     }
     
@@ -60,29 +59,25 @@ void LogParserController::parseDrain(
     }
     
     // Parse the log lines
-    auto result = drainParser_->parse(logLines);
+    std::vector<LogRecordObject> parsedLogs;
+    for (const auto& line : logLines) {
+        parsedLogs.push_back(drainParser_->parse_line(line));
+    }
     
     // Prepare response
     json response;
-    response["clusters"] = json::array();
+    response["parsedLogs"] = json::array();
     
-    for (const auto& cluster : result.clusters) {
-        json clusterJson;
-        clusterJson["template"] = cluster.template_str;
-        clusterJson["size"] = cluster.logs.size();
-        clusterJson["logs"] = json::array();
-        
-        for (const auto& log : cluster.logs) {
-            clusterJson["logs"].push_back(log);
-        }
-        
-        response["clusters"].push_back(clusterJson);
+    for (const auto& log : parsedLogs) {
+        json logJson;
+        logJson["template"] = log.template_str;
+        logJson["parameters"] = log.parameters;
+        response["parsedLogs"].push_back(logJson);
     }
     
-    response["totalClusters"] = result.clusters.size();
     response["totalLogs"] = logLines.size();
     
-    callback(apiController_->createJsonResponse(response));
+    callback(createJsonResponse(response));
 }
 
 void LogParserController::parseFile(
@@ -91,14 +86,14 @@ void LogParserController::parseFile(
     
     // Parse request JSON
     json requestJson;
-    if (!apiController_->parseJsonBody(req, requestJson)) {
-        callback(apiController_->createErrorResponse("Invalid JSON in request body"));
+    if (!parseJsonBody(req, requestJson)) {
+        callback(createErrorResponse("Invalid JSON in request body"));
         return;
     }
     
     // Validate request
     if (!requestJson.contains("filePath") || !requestJson["filePath"].is_string()) {
-        callback(apiController_->createErrorResponse("Request must contain 'filePath' string"));
+        callback(createErrorResponse("Request must contain 'filePath' string"));
         return;
     }
     
@@ -106,7 +101,7 @@ void LogParserController::parseFile(
     
     // Check if file exists
     if (!fs::exists(filePath)) {
-        callback(apiController_->createErrorResponse("File not found: " + filePath, drogon::k404NotFound));
+        callback(createErrorResponse("File not found: " + filePath, drogon::k404NotFound));
         return;
     }
     
@@ -170,9 +165,9 @@ void LogParserController::parseFile(
         response["totalRecords"] = logRecords.size();
         response["filePath"] = filePath;
         
-        callback(apiController_->createJsonResponse(response));
+        callback(createJsonResponse(response));
     } catch (const std::exception& e) {
-        callback(apiController_->createErrorResponse("Error parsing file: " + std::string(e.what())));
+        callback(createErrorResponse("Error parsing file: " + std::string(e.what())));
     }
 }
 
