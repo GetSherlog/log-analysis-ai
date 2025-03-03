@@ -32,6 +32,16 @@ public:
     AnomalyDetectionController();
     ~AnomalyDetectionController() = default;
 
+    // Implement required virtual functions from DrObjectBase
+    virtual const std::string& className() const override {
+        static const std::string className = "AnomalyDetectionController";
+        return className;
+    }
+
+    virtual bool isClass(const std::string& className) const override {
+        return className == "AnomalyDetectionController";
+    }
+
     /**
      * @brief Extract features from log lines
      * @param req HTTP request with log lines and feature extraction config
@@ -67,10 +77,10 @@ public:
 private:
     std::unique_ptr<FeatureExtractor> featureExtractor_;
     std::unique_ptr<LabelEncoder> labelEncoder_;
-    std::unique_ptr<LogbertVectorizer> logbertVectorizer_;
-    std::unique_ptr<OneClassSVM> oneClassSvm_;
-    std::unique_ptr<DbscanClustering> dbscan_;
-    std::unique_ptr<DbscanClusteringKDTree> dbscanKdtree_;
+    std::unique_ptr<LogBERTVectorizer> logbertVectorizer_;
+    std::unique_ptr<OneClassSVMDetector> oneClassSvm_;
+    std::unique_ptr<DbScanClustering> dbscan_;
+    std::unique_ptr<DbScanClusteringKDTree> dbscanKdtree_;
 };
 
 } // namespace web

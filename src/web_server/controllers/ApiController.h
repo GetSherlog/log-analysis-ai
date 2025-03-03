@@ -17,6 +17,9 @@ public:
     ApiController() = default;
     virtual ~ApiController() = default;
 
+    // Required by Drogon framework
+    static void initPathRouting() {}
+
 protected:
     /**
      * @brief Create a success JSON response

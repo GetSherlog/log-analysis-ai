@@ -11,25 +11,36 @@ using VectorXd = Eigen::VectorXd;
 namespace logai {
 namespace web {
 
-AnomalyDetectionController::AnomalyDetectionController()
-    : apiController_(std::make_shared<ApiController>()),
-      featureExtractor_(std::make_unique<FeatureExtractor>()),
-      labelEncoder_(std::make_unique<LabelEncoder>()),
-      logbertVectorizer_(std::make_unique<LogbertVectorizer>()),
-      oneClassSvm_(std::make_unique<OneClassSVM>()),
-      dbscan_(std::make_unique<DbscanClustering>()),
-      dbscanKdtree_(std::make_unique<DbscanClusteringKDTree>()) {
+AnomalyDetectionController::AnomalyDetectionController() {
+    // Initialize feature extractor with default config
+    FeatureExtractorConfig feConfig;
+    featureExtractor_ = std::make_unique<FeatureExtractor>(feConfig);
     
-    // Initialize with default parameters
-    oneClassSvm_->setKernel("rbf");
-    oneClassSvm_->setNu(0.1);
-    oneClassSvm_->setGamma(0.1);
+    // Initialize other components
+    labelEncoder_ = std::make_unique<LabelEncoder>();
     
-    dbscan_->setEps(0.5);
-    dbscan_->setMinSamples(5);
+    // Initialize LogBERTVectorizer with default config
+    LogBERTVectorizerConfig lbConfig;
+    logbertVectorizer_ = std::make_unique<LogBERTVectorizer>(lbConfig);
     
-    dbscanKdtree_->setEps(0.5);
-    dbscanKdtree_->setMinSamples(5);
+    // Initialize OneClassSVMDetector with default params
+    OneClassSVMParams ocsvmParams;
+    ocsvmParams.kernel = "rbf";
+    ocsvmParams.nu = 0.1;
+    ocsvmParams.gamma = "scale"; // Use "scale" instead of a fixed value
+    oneClassSvm_ = std::make_unique<OneClassSVMDetector>(ocsvmParams);
+    
+    // Initialize DBSCAN with default params
+    DbScanParams dbParams;
+    dbParams.eps = 0.5;
+    dbParams.min_samples = 5;
+    dbscan_ = std::make_unique<DbScanClustering>(dbParams);
+    
+    // Initialize DBSCAN KDTree with default params
+    DbScanKDTreeParams kdParams;
+    kdParams.eps = 0.5;
+    kdParams.min_samples = 5;
+    dbscanKdtree_ = std::make_unique<DbScanClusteringKDTree>(kdParams);
 }
 
 void AnomalyDetectionController::extractFeatures(
@@ -38,14 +49,14 @@ void AnomalyDetectionController::extractFeatures(
     
     // Parse request JSON
     json requestJson;
-    if (!apiController_->parseJsonBody(req, requestJson)) {
-        callback(apiController_->createErrorResponse("Invalid JSON in request body"));
+    if (!parseJsonBody(req, requestJson)) {
+        callback(createErrorResponse("Invalid JSON in request body"));
         return;
     }
     
     // Validate request
     if (!requestJson.contains("logLines") || !requestJson["logLines"].is_array()) {
-        callback(apiController_->createErrorResponse("Request must contain 'logLines' array"));
+        callback(createErrorResponse("Request must contain 'logLines' array"));
         return;
     }
     
@@ -58,12 +69,12 @@ void AnomalyDetectionController::extractFeatures(
     }
     
     if (logLines.empty()) {
-        callback(apiController_->createErrorResponse("No valid log lines provided"));
+        callback(createErrorResponse("No valid log lines provided"));
         return;
     }
     
     // Extract features
-    auto features = featureExtractor_->extract(logLines);
+    auto features = featureExtractor_->transform(logLines);
     
     // Prepare response
     json response;
@@ -80,7 +91,7 @@ void AnomalyDetectionController::extractFeatures(
     response["totalFeatures"] = features.rows();
     response["featureDimension"] = features.cols();
     
-    callback(apiController_->createJsonResponse(response));
+    callback(createJsonResponse(response));
 }
 
 void AnomalyDetectionController::vectorizeLogbert(
@@ -89,14 +100,14 @@ void AnomalyDetectionController::vectorizeLogbert(
     
     // Parse request JSON
     json requestJson;
-    if (!apiController_->parseJsonBody(req, requestJson)) {
-        callback(apiController_->createErrorResponse("Invalid JSON in request body"));
+    if (!parseJsonBody(req, requestJson)) {
+        callback(createErrorResponse("Invalid JSON in request body"));
         return;
     }
     
     // Validate request
     if (!requestJson.contains("logMessages") || !requestJson["logMessages"].is_array()) {
-        callback(apiController_->createErrorResponse("Request must contain 'logMessages' array"));
+        callback(createErrorResponse("Request must contain 'logMessages' array"));
         return;
     }
     
@@ -109,17 +120,30 @@ void AnomalyDetectionController::vectorizeLogbert(
     }
     
     if (logMessages.empty()) {
-        callback(apiController_->createErrorResponse("No valid log messages provided"));
+        callback(createErrorResponse("No valid log messages provided"));
         return;
     }
     
-    // Optional configuration
+    // Optional configuration - update the config if necessary
     if (requestJson.contains("maxSequenceLength") && requestJson["maxSequenceLength"].is_number_integer()) {
-        logbertVectorizer_->setMaxSequenceLength(requestJson["maxSequenceLength"].get<int>());
+        // Create new config with updated max length
+        LogBERTVectorizerConfig newConfig;
+        newConfig.max_token_len = requestJson["maxSequenceLength"].get<int>();
+        
+        // Recreate the vectorizer with new config
+        logbertVectorizer_ = std::make_unique<LogBERTVectorizer>(newConfig);
     }
     
     // Vectorize messages
-    auto vectors = logbertVectorizer_->vectorize(logMessages);
+    std::vector<std::vector<int>> tokens = logbertVectorizer_->transform(logMessages);
+    
+    // Convert to matrix for consistent API
+    Eigen::MatrixXd vectors(tokens.size(), tokens[0].size());
+    for (size_t i = 0; i < tokens.size(); ++i) {
+        for (size_t j = 0; j < tokens[i].size(); ++j) {
+            vectors(i, j) = static_cast<double>(tokens[i][j]);
+        }
+    }
     
     // Prepare response
     json response;
@@ -136,11 +160,11 @@ void AnomalyDetectionController::vectorizeLogbert(
     response["totalVectors"] = vectors.rows();
     response["vectorDimension"] = vectors.cols();
     
-    callback(apiController_->createJsonResponse(response));
+    callback(createJsonResponse(response));
 }
 
-void AnomalyDetectionController::detectAnomaliesOcSvm(const HttpRequestPtr& req,
-                                                     std::function<void(const HttpResponsePtr&)>&& callback) {
+void AnomalyDetectionController::detectAnomaliesOcSvm(const drogon::HttpRequestPtr& req,
+                                                     std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
     json requestJson;
     if (!parseJsonBody(req, requestJson)) {
         callback(createErrorResponse("Invalid JSON in request body"));
@@ -179,32 +203,47 @@ void AnomalyDetectionController::detectAnomaliesOcSvm(const HttpRequestPtr& req,
         }
     }
 
+    // Create new params if configuration is updated
+    OneClassSVMParams params;
+    params.kernel = "rbf"; // default
+    params.nu = 0.1;      // default
+    params.gamma = "scale"; // default
+    
     if (requestJson.contains("kernel")) {
-        (*oneClassSvm_).setKernel(requestJson["kernel"].get<std::string>());
+        params.kernel = requestJson["kernel"].get<std::string>();
     }
 
     if (requestJson.contains("nu")) {
-        (*oneClassSvm_).setNu(requestJson["nu"].get<double>());
+        params.nu = requestJson["nu"].get<double>();
     }
 
     if (requestJson.contains("gamma")) {
-        (*oneClassSvm_).setGamma(requestJson["gamma"].get<double>());
+        if (requestJson["gamma"].is_number()) {
+            // If numeric value, convert to string
+            params.gamma = std::to_string(requestJson["gamma"].get<double>());
+        } else {
+            params.gamma = requestJson["gamma"].get<std::string>();
+        }
     }
+    
+    // Recreate the detector with updated params
+    oneClassSvm_ = std::make_unique<OneClassSVMDetector>(params);
 
-    (*oneClassSvm_).fit(featureMatrix);
-    Eigen::VectorXd predictions = (*oneClassSvm_).predict(featureMatrix);
+    // Fit and predict
+    oneClassSvm_->fit(featureMatrix);
+    Eigen::VectorXd predictions = oneClassSvm_->predict(featureMatrix);
 
     json response;
     response["predictions"] = std::vector<int>();
-    for (size_t i = 0; i < predictions.size(); ++i) {
+    for (Eigen::Index i = 0; i < predictions.size(); ++i) {
         response["predictions"].push_back(predictions(i));
     }
 
     callback(createJsonResponse(response));
 }
 
-void AnomalyDetectionController::clusterDbscan(const HttpRequestPtr& req,
-                                             std::function<void(const HttpResponsePtr&)>&& callback) {
+void AnomalyDetectionController::clusterDbscan(const drogon::HttpRequestPtr& req,
+                                             std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
     json requestJson;
     if (!parseJsonBody(req, requestJson)) {
         callback(createErrorResponse("Invalid JSON in request body"));
@@ -236,59 +275,76 @@ void AnomalyDetectionController::clusterDbscan(const HttpRequestPtr& req,
         }
     }
 
-    Eigen::MatrixXd featureMatrix(featureVectors.size(), dimension);
-    for (size_t i = 0; i < featureVectors.size(); ++i) {
-        for (size_t j = 0; j < dimension; ++j) {
-            featureMatrix(i, j) = featureVectors[i][j];
-        }
+    // Convert Eigen::MatrixXd to vector<vector<float>>
+    std::vector<std::vector<float>> featureVectorsFloat;
+    featureVectorsFloat.reserve(featureVectors.size());
+    for (const auto& vec : featureVectors) {
+        std::vector<float> floatVec(vec.begin(), vec.end());
+        featureVectorsFloat.push_back(std::move(floatVec));
     }
 
     bool useKdTree = requestJson.value("useKdTree", false);
     Eigen::VectorXd labels;
 
-    if (requestJson.contains("eps")) {
-        double eps = requestJson["eps"].get<double>();
-        if (useKdTree) {
-            (*dbscanKdtree_).setEps(eps);
-        } else {
-            (*dbscan_).setEps(eps);
-        }
-    }
-
-    if (requestJson.contains("minSamples")) {
-        int minSamples = requestJson["minSamples"].get<int>();
-        if (useKdTree) {
-            (*dbscanKdtree_).setMinSamples(minSamples);
-        } else {
-            (*dbscan_).setMinSamples(minSamples);
-        }
-    }
-
     if (useKdTree) {
-        labels = (*dbscanKdtree_).fit_predict(featureMatrix);
+        // Create new params if needed
+        DbScanKDTreeParams kdParams;
+        kdParams.eps = 0.5; // default
+        kdParams.min_samples = 5; // default
+
+        if (requestJson.contains("eps")) {
+            kdParams.eps = requestJson["eps"].get<double>();
+        }
+
+        if (requestJson.contains("minSamples")) {
+            kdParams.min_samples = requestJson["minSamples"].get<int>();
+        }
+
+        // Recreate with new params
+        dbscanKdtree_ = std::make_unique<DbScanClusteringKDTree>(kdParams);
+        
+        // Fit and get labels
+        dbscanKdtree_->fit(featureVectorsFloat);
+        std::vector<int> labelVec = dbscanKdtree_->get_labels();
+        
+        // Convert to Eigen vector
+        labels.resize(labelVec.size());
+        for (size_t i = 0; i < labelVec.size(); ++i) {
+            labels(i) = labelVec[i];
+        }
     } else {
-        labels = (*dbscan_).fit_predict(featureMatrix);
+        // Create new params if needed
+        DbScanParams dbParams;
+        dbParams.eps = 0.5; // default
+        dbParams.min_samples = 5; // default
+        
+        if (requestJson.contains("eps")) {
+            dbParams.eps = requestJson["eps"].get<double>();
+        }
+
+        if (requestJson.contains("minSamples")) {
+            dbParams.min_samples = requestJson["minSamples"].get<int>();
+        }
+
+        // Recreate with new params
+        dbscan_ = std::make_unique<DbScanClustering>(dbParams);
+        
+        // Fit and get labels
+        dbscan_->fit(featureVectorsFloat);
+        std::vector<int> labelVec = dbscan_->get_labels();
+        
+        // Convert to Eigen vector
+        labels.resize(labelVec.size());
+        for (size_t i = 0; i < labelVec.size(); ++i) {
+            labels(i) = labelVec[i];
+        }
     }
 
     json response;
     response["labels"] = std::vector<int>();
-    for (size_t i = 0; i < labels.size(); ++i) {
+    for (Eigen::Index i = 0; i < labels.size(); ++i) {
         response["labels"].push_back(labels(i));
     }
-
-    // Count number of clusters
-    std::set<int> uniqueLabels;
-    for (size_t i = 0; i < labels.size(); ++i) {
-        uniqueLabels.insert(labels(i));
-    }
-    response["numClusters"] = uniqueLabels.size();
-
-    // Count points per cluster
-    std::map<int, int> clusterCounts;
-    for (size_t i = 0; i < labels.size(); ++i) {
-        clusterCounts[labels(i)]++;
-    }
-    response["clusterCounts"] = clusterCounts;
 
     callback(createJsonResponse(response));
 }

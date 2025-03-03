@@ -9,8 +9,9 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./logs:/app/logs
-      - ./uploads:/app/uploads
+      - ./logs:/var/log/logai
+      - ./uploads:/var/uploads/logai
+      - ./src/web_server/web:/usr/local/share/logai
     environment:
       - TZ=UTC
     restart: unless-stopped

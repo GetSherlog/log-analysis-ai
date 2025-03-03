@@ -4,12 +4,33 @@
  */
 
 #include <drogon/drogon.h>
+#include <drogon/plugins/Cors.h>
+#include <nlohmann/json.hpp>
 #include <iostream>
 #include <string>
 #include <memory>
 #include <chrono>
 #include <thread>
 #include <filesystem>
+
+// Add fallback implementation of CORS plugin in case it's not available at runtime
+namespace drogon {
+namespace plugin {
+    // Forward declaration
+    class CorsConfig;
+    
+    // Fallback implementation
+    class Cors : public drogon::Plugin<Cors> {
+    public:
+        Cors() {}
+        virtual void initAndStart(const Json::Value &config) override {}
+        virtual void shutdown() override {}
+        
+        static std::shared_ptr<Cors> createPlugin() {
+            return std::make_shared<Cors>();
+        }
+    };
+}}  // namespace drogon::plugin
 
 // LogAI includes
 #include "file_data_loader.h"
@@ -55,14 +76,14 @@ int main(int argc, char* argv[]) {
         fs::create_directory(UPLOAD_PATH);
     }
     
-    // Configure CORS for the API
-    auto corsConfig = std::make_shared<drogon::plugins::CorsConfig>();
-    corsConfig->corsMethods = "GET,POST,OPTIONS";
-    corsConfig->corsHeaders = "Origin, Content-Type, Accept";
-    corsConfig->corsOrigins = {"*"};  // In production, restrict this to specific domains
-    corsConfig->corsExposeHeaders = "Authorization";
-    corsConfig->corsAllowCredentials = false;
-    corsConfig->corsMaxAge = 86400;  // 24 hours
+    // Set up CORS configuration
+    Json::Value corsJson;
+    corsJson["cors_origin"] = "*";  // Allow all origins
+    corsJson["cors_methods"] = "GET,POST,OPTIONS";
+    corsJson["cors_headers"] = "Origin, Content-Type, Accept";
+    corsJson["cors_expose_headers"] = "Authorization";
+    corsJson["cors_allow_credentials"] = false;
+    corsJson["cors_max_age"] = 86400;  // 24 hours
     
     // Initialize Drogon server
     drogon::app()
@@ -75,11 +96,27 @@ int main(int argc, char* argv[]) {
         .setIdleConnectionTimeout(60)
         .setMaxConnectionNum(10000)
         .setMaxConnectionNumPerIP(0)
-        .setDocumentRoot("./web")
+        .setDocumentRoot("./src/web_server/web") // Use full path to web directory
         .setUploadPath(UPLOAD_PATH)
         .registerSyncAdvice([](const drogon::HttpRequestPtr& req) {
             req->addHeader("Server", "LogAI-CPP Server");
             return drogon::HttpResponsePtr();
+        })
+        
+        // Register a filter to implement CORS if the plugin isn't available
+        .registerFilter([](const drogon::HttpRequestPtr &req, drogon::FilterCallback &&fcb, drogon::FilterChainCallback &&fccb) {
+            if (req->getMethod() == drogon::Options) {
+                auto resp = drogon::HttpResponse::newHttpResponse();
+                resp->setStatusCode(drogon::k204NoContent);
+                resp->addHeader("Access-Control-Allow-Origin", "*");
+                resp->addHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+                resp->addHeader("Access-Control-Allow-Headers", "Origin, Content-Type, Accept");
+                resp->addHeader("Access-Control-Max-Age", "86400");
+                fcb(resp);
+                return;
+            }
+            
+            fccb();
         })
         // Register builtin controllers
         .registerHandler("/health",
@@ -108,59 +145,78 @@ int main(int argc, char* argv[]) {
         .registerHandler("/api/upload",
             [](const drogon::HttpRequestPtr& req,
                std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
-                auto resp = drogon::HttpResponse::newHttpJsonResponse({});
+                auto resp = drogon::HttpResponse::newHttpResponse();
                 
                 // Check if this is a multipart/form-data request
                 if (req->getContentType() != drogon::CT_MULTIPART_FORM_DATA) {
-                    resp = drogon::HttpResponse::newHttpJsonResponse({
+                    nlohmann::json error = {
                         {"error", true},
                         {"message", "Expecting multipart/form-data request"}
-                    });
+                    };
                     resp->setStatusCode(drogon::k400BadRequest);
+                    resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+                    resp->setBody(error.dump());
                     callback(resp);
                     return;
                 }
                 
                 // Get the file from the request
-                auto fileUploads = req->getFiles();
-                if (fileUploads.empty() || !fileUploads["file"]) {
-                    resp = drogon::HttpResponse::newHttpJsonResponse({
+                auto fileUploads = req->getUploadedFiles();
+                if (fileUploads.empty()) {
+                    nlohmann::json error = {
                         {"error", true},
                         {"message", "No file found in request"}
-                    });
+                    };
                     resp->setStatusCode(drogon::k400BadRequest);
+                    resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+                    resp->setBody(error.dump());
                     callback(resp);
                     return;
                 }
                 
-                auto& file = fileUploads["file"];
+                auto& file = fileUploads[0];
                 
                 // Save the file to the upload directory with a unique name
                 auto now = std::chrono::system_clock::now();
                 auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
                     now.time_since_epoch()).count();
                 
-                std::string filename = std::to_string(timestamp) + "_" + file->getFileName();
+                std::string filename = std::to_string(timestamp) + "_" + file.getFileName();
                 std::string filePath = UPLOAD_PATH + "/" + filename;
                 
                 // Save the file
-                file->saveAs(filePath);
+                file.saveAs(filePath);
                 
                 // Return the file information
-                resp = drogon::HttpResponse::newHttpJsonResponse({
+                nlohmann::json response = {
                     {"success", true},
                     {"filename", filename},
-                    {"originalName", file->getFileName()},
+                    {"originalName", file.getFileName()},
                     {"path", filePath},
-                    {"size", file->fileLength()}
-                });
+                    {"size", file.fileLength()}
+                };
+                resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+                resp->setBody(response.dump());
                 
                 callback(resp);
             },
             {drogon::Post}
         )
-        // Configure CORS
-        .registerPlugin<drogon::plugins::Cors>(corsConfig)
+        // Try to register CORS plugin, but don't fail if it's not available
+        .addPluginsPath("/usr/local/lib")
+        .loadConfigFile("./plugins_config.json") // If exists
+        
+        // Register basic CORS headers for all responses
+        .registerFilter([](const drogon::HttpRequestPtr &req, drogon::FilterCallback &&fcb, drogon::FilterChainCallback &&fccb) {
+            fccb();
+            if (fcb) {
+                auto resp = drogon::HttpResponse::newHttpResponse();
+                resp->addHeader("Access-Control-Allow-Origin", "*");
+                resp->addHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+                resp->addHeader("Access-Control-Allow-Headers", "Origin, Content-Type, Accept");
+                fcb(resp);
+            }
+        })
         // Run the server
         .run();
     

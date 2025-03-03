@@ -55,7 +55,19 @@ RUN git clone https://github.com/drogonframework/drogon \
     && git submodule update --init --recursive \
     && mkdir build && cd build \
     && cmake -DBUILD_SHARED_LIBS=ON \
-            -DCMAKE_POSITION_INDEPENDENT_CODE=ON .. \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DBUILD_DROGON_PLUGINS=ON .. \
+    && make -j$(nproc) \
+    && make install \
+    && ldconfig
+
+# Install Drogon CORS plugin explicitly
+WORKDIR /tmp/drogon-plugins
+RUN git clone https://github.com/drogonframework/drogon-plugins \
+    && cd drogon-plugins \
+    && git checkout master \
+    && mkdir build && cd build \
+    && cmake .. \
     && make -j$(nproc) \
     && make install \
     && ldconfig
@@ -91,9 +103,10 @@ RUN mkdir -p /var/log/logai /var/uploads/logai \
     && chmod -R 777 /var/log/logai \
     && chmod -R 777 /var/uploads/logai
 
-# Copy built artifacts and web assets
+# Copy built artifacts, web assets, and config files
 COPY --from=build /app/build/bin/logai_web_server /usr/local/bin/
 COPY --from=build /app/src/web_server/web /usr/local/share/logai/
+COPY --from=build /app/plugins_config.json /usr/local/bin/
 
 # Set permissions
 RUN chmod +x /usr/local/bin/logai_web_server
@@ -105,5 +118,6 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8080/api/health || exit 1
 
-# Start the web server
-CMD ["/usr/local/bin/logai_web_server", "--threads", "16", "--document-root", "/usr/local/share/logai"] 
+# Start the web server with proper working directory
+WORKDIR /usr/local/bin
+CMD ["./logai_web_server", "8080", "16"] 
