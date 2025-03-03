@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     libboost-all-dev python3 ninja-build pkg-config unzip \
     python3-pip nlohmann-json3-dev libjemalloc-dev \
     libgoogle-glog-dev libgflags-dev liblz4-dev libleveldb-dev \
-    libtbb-dev \
+    libtbb-dev libhiredis-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Apache Arrow
@@ -56,21 +56,15 @@ RUN git clone https://github.com/drogonframework/drogon \
     && mkdir build && cd build \
     && cmake -DBUILD_SHARED_LIBS=ON \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-            -DBUILD_DROGON_PLUGINS=ON .. \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_CTL=OFF \
+            -DBUILD_TESTING=OFF .. \
     && make -j$(nproc) \
     && make install \
     && ldconfig
 
-# Install Drogon CORS plugin explicitly
-WORKDIR /tmp/drogon-plugins
-RUN git clone https://github.com/drogonframework/drogon-plugins \
-    && cd drogon-plugins \
-    && git checkout master \
-    && mkdir build && cd build \
-    && cmake .. \
-    && make -j$(nproc) \
-    && make install \
-    && ldconfig
+# Verify that the library is installed correctly
+RUN ls -la /usr/local/lib/libdrogon* || echo "Drogon library not found!"
 
 # Build stage
 FROM dependencies AS build
@@ -95,18 +89,32 @@ RUN apt-get update && apt-get install -y \
     libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev \
     libmariadb-dev libboost-all-dev libjemalloc-dev \
     libgoogle-glog-dev libgflags-dev liblz4-dev \
-    libleveldb-dev libtbb-dev curl \
+    libleveldb-dev libtbb-dev curl libhiredis-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Copy all the libraries from the build stage
+COPY --from=build /usr/local/lib/* /usr/local/lib/
+COPY --from=build /usr/local/include /usr/local/include
+
+# Create symlinks if needed and update the dynamic linker run-time bindings
+RUN mkdir -p /usr/lib/drogon && \
+    ln -sf /usr/local/lib/libdrogon.so /usr/lib/libdrogon.so && \
+    ln -sf /usr/local/lib/libdrogon.so /usr/lib/drogon/libdrogon.so && \
+    ldconfig
 
 # Create necessary directories
 RUN mkdir -p /var/log/logai /var/uploads/logai \
     && chmod -R 777 /var/log/logai \
     && chmod -R 777 /var/uploads/logai
 
-# Copy built artifacts, web assets, and config files
+# Copy built artifacts and web assets
 COPY --from=build /app/build/bin/logai_web_server /usr/local/bin/
-COPY --from=build /app/src/web_server/web /usr/local/share/logai/
-COPY --from=build /app/plugins_config.json /usr/local/bin/
+
+# Create web directory structure
+RUN mkdir -p /app/src/web_server/web
+
+# Create a basic index.html
+RUN echo '<!DOCTYPE html>\n<html>\n<head>\n<title>LogAI-CPP Web Server</title>\n</head>\n<body>\n<h1>LogAI-CPP Web Server</h1>\n<p>Server is running!</p>\n<p><a href="/health">Health Check</a></p>\n</body>\n</html>' > /app/src/web_server/web/index.html
 
 # Set permissions
 RUN chmod +x /usr/local/bin/logai_web_server
@@ -116,8 +124,18 @@ EXPOSE 8080
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:8080/api/health || exit 1
+  CMD curl -f http://localhost:8080/health || exit 1
 
 # Start the web server with proper working directory
-WORKDIR /usr/local/bin
-CMD ["./logai_web_server", "8080", "16"] 
+WORKDIR /app
+COPY --from=build /app/build /app/build
+RUN mkdir -p /app/uploads
+
+# Set up environment variables
+ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:$LD_LIBRARY_PATH
+
+# Debugging script
+RUN echo '#!/bin/bash\necho "Starting LogAI Web Server..."\ncd /app\nexec /usr/local/bin/logai_web_server\n' > /start.sh && chmod +x /start.sh
+
+# Use a shell script and set the right working directory
+CMD ["/start.sh"] 

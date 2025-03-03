@@ -3,9 +3,10 @@
 # Set minimum CMake version
 cmake_minimum_required(VERSION 3.10)
 
-# Source files
-file(GLOB_RECURSE SERVER_SOURCES "*.cpp")
-file(GLOB_RECURSE SERVER_HEADERS "*.h")
+# Source files - Only include LogAIServer.cpp 
+set(SERVER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/LogAIServer.cpp")
+# No need for controller headers
+set(SERVER_HEADERS "")
 
 # Find required packages
 # Only find Drogon if it hasn't been found yet
@@ -36,15 +37,9 @@ target_include_directories(logai_web_server
     PRIVATE ${DROGON_INCLUDE_DIRS}
 )
 
-# Link the libraries
+# Simplified link the libraries - only what we need
 target_link_libraries(logai_web_server 
-    PRIVATE logai
     PRIVATE ${DROGON_LIBRARIES}
-    PRIVATE nlohmann_json::nlohmann_json
-    PRIVATE PkgConfig::ARROW
-    PRIVATE PkgConfig::PARQUET
-    PRIVATE absl::strings
-    PRIVATE Eigen3::Eigen
 )
 
 # Installation

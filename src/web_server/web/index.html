@@ -1,12 +1,12 @@
-<!DOCTYPE html>
+<\!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LogAI-CPP Web Server</title>
+    <title>LogAI-CPP API Server</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             line-height: 1.6;
             color: #333;
             max-width: 800px;
@@ -15,150 +15,92 @@
         }
         h1 {
             color: #2c3e50;
-            border-bottom: 2px solid #3498db;
+            border-bottom: 2px solid #eee;
             padding-bottom: 10px;
         }
         h2 {
-            color: #2980b9;
+            color: #3498db;
             margin-top: 30px;
         }
         code {
-            background-color: #f8f8f8;
-            border: 1px solid #ddd;
+            background: #f8f8f8;
+            padding: 2px 5px;
             border-radius: 3px;
-            font-family: monospace;
-            padding: 2px 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.9em;
+            color: #e74c3c;
         }
         pre {
-            background-color: #f8f8f8;
-            border: 1px solid #ddd;
-            border-radius: 3px;
-            padding: 10px;
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 5px;
             overflow-x: auto;
         }
-        a {
-            color: #3498db;
-            text-decoration: none;
-        }
-        a:hover {
-            text-decoration: underline;
-        }
         .endpoint {
-            background-color: #f1f1f1;
-            padding: 10px;
-            margin-bottom: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
             border-left: 4px solid #3498db;
+            border-radius: 0 5px 5px 0;
         }
         .method {
             font-weight: bold;
-            color: #e74c3c;
-        }
-        .cta-button {
             display: inline-block;
-            background-color: #2ecc71;
+            padding: 3px 8px;
+            border-radius: 3px;
             color: white;
-            font-weight: bold;
-            padding: 12px 24px;
-            border-radius: 4px;
-            margin: 20px 0;
-            text-align: center;
-            transition: background-color 0.3s;
+            font-size: 0.8em;
+            margin-right: 10px;
         }
-        .cta-button:hover {
-            background-color: #27ae60;
-            text-decoration: none;
+        .get {
+            background: #2ecc71;
         }
-        .tool-card {
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            padding: 15px;
-            margin: 20px 0;
-            background-color: #f9f9f9;
+        .post {
+            background: #3498db;
         }
-        .tool-card h3 {
+        .endpoint h3 {
             margin-top: 0;
-            color: #2c3e50;
-        }
-        .tool-card p {
-            margin-bottom: 15px;
+            display: inline-block;
         }
     </style>
 </head>
 <body>
-    <h1>LogAI-CPP Web Server</h1>
-    <p>Welcome to the LogAI-CPP Web Server. This server provides a high-performance HTTP API to interact with the LogAI-CPP library functionality.</p>
+    <h1>LogAI-CPP API Server</h1>
+    <p>Welcome to the LogAI-CPP API Server. This server provides a RESTful API for log processing, analysis, and anomaly detection using C++ high-performance implementation.</p>
     
-    <div class="tool-card">
-        <h3>⚡ Interactive Anomaly Detection</h3>
-        <p>Use our interactive web interface to upload log files, analyze them, and detect anomalies without writing any code.</p>
-        <a href="/anomaly_detection.html" class="cta-button">Open Anomaly Detection Tool</a>
-    </div>
-    
-    <h2>API Endpoints</h2>
-    
+    <h2>API Status</h2>
     <div class="endpoint">
-        <p><span class="method">GET</span> <code>/health</code> - Check server health</p>
+        <span class="method get">GET</span>
+        <h3>/health</h3>
+        <p>Check if the API server is running properly.</p>
+        <p><strong>Response:</strong></p>
+        <pre><code>{
+  "status": "ok",
+  "version": "0.1.0"
+}</code></pre>
     </div>
-    
+
     <div class="endpoint">
-        <p><span class="method">GET</span> <code>/api</code> - Get API information</p>
+        <span class="method get">GET</span>
+        <h3>/api</h3>
+        <p>Get information about the API.</p>
+        <p><strong>Response:</strong></p>
+        <pre><code>{
+  "name": "LogAI-CPP API",
+  "version": "0.1.0",
+  "status": "running"
+}</code></pre>
     </div>
-    
-    <h3>Log Parsing</h3>
-    
-    <div class="endpoint">
-        <p><span class="method">POST</span> <code>/api/parser/drain</code> - Parse log lines using DRAIN algorithm</p>
-    </div>
-    
-    <div class="endpoint">
-        <p><span class="method">POST</span> <code>/api/parser/file</code> - Parse logs from a file</p>
-    </div>
-    
-    <h3>Feature Extraction</h3>
-    
-    <div class="endpoint">
-        <p><span class="method">POST</span> <code>/api/features/extract</code> - Extract features from log lines</p>
-    </div>
-    
-    <div class="endpoint">
-        <p><span class="method">POST</span> <code>/api/features/logbert</code> - Vectorize log messages using LogBERT</p>
-    </div>
-    
-    <h3>Anomaly Detection</h3>
-    
-    <div class="endpoint">
-        <p><span class="method">POST</span> <code>/api/anomalies/ocsvm</code> - Detect anomalies using One-Class SVM</p>
-    </div>
-    
-    <div class="endpoint">
-        <p><span class="method">POST</span> <code>/api/anomalies/dbscan</code> - Cluster log events using DBSCAN</p>
-    </div>
-    
-    <div class="endpoint">
-        <p><span class="method">POST</span> <code>/api/upload</code> - Upload log files for processing</p>
-    </div>
-    
-    <h2>API Documentation</h2>
-    <p>For detailed API documentation, please see the <a href="/web/swagger.json">Swagger/OpenAPI definition</a>.</p>
-    
-    <h2>Example Usage</h2>
-    <p>Example of parsing logs using the DRAIN algorithm:</p>
-    <pre>curl -X POST http://localhost:8080/api/parser/drain \
-  -H "Content-Type: application/json" \
-  -d '{
-    "logLines": [
-      "User login failed for user john",
-      "User login failed for user alice",
-      "Connection timeout after 30 seconds",
-      "Connection timeout after 45 seconds"
-    ]
-  }'</pre>
-  
-    <h2>Documentation</h2>
-    <p>For more information about the LogAI-CPP library and this web server, please refer to the <a href="https://github.com/your-org/logai-cpp">GitHub repository</a>.</p>
-    
-    <footer style="margin-top: 50px; color: #7f8c8d; font-size: 0.9em; text-align: center;">
-        <p>LogAI-CPP Web Server v0.1.0</p>
-    </footer>
+
+    <h2>Functionality</h2>
+    <p>The full LogAI-CPP API normally includes these features:</p>
+    <ul>
+        <li>Log parsing (Drain, Regex, CSV, JSON)</li>
+        <li>Feature extraction from log data</li>
+        <li>LogBERT vectorization</li>
+        <li>One-Class SVM for anomaly detection</li>
+        <li>DBSCAN clustering</li>
+    </ul>
+    <p><strong>Note:</strong> This is a simple health check server. For the full functionality, please check the repository documentation.</p>
 </body>
-</html> 
+</html>
