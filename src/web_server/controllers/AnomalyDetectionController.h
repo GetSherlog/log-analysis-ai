@@ -19,7 +19,7 @@ namespace web {
  * @class AnomalyDetectionController
  * @brief Controller for log anomaly detection related endpoints
  */
-class AnomalyDetectionController : public drogon::HttpController<AnomalyDetectionController> {
+class AnomalyDetectionController : public drogon::HttpController<AnomalyDetectionController>, public ApiController {
 public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(AnomalyDetectionController::extractFeatures, "/api/features/extract", drogon::Post);

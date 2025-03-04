@@ -134,7 +134,7 @@ RUN mkdir -p /app/uploads
 # Set up environment variables
 ENV LD_LIBRARY_PATH=/usr/local/lib:/usr/lib:$LD_LIBRARY_PATH
 
-# Debugging script
+# Startup script
 RUN echo '#!/bin/bash\necho "Starting LogAI Web Server..."\ncd /app\nexec /usr/local/bin/logai_web_server\n' > /start.sh && chmod +x /start.sh
 
 # Use a shell script and set the right working directory

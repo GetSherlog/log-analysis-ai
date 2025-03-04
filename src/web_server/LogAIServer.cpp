@@ -9,6 +9,9 @@
 #include <memory>
 #include <filesystem>
 
+// Include controllers
+#include "controllers/AnomalyDetectionController.h"
+
 namespace fs = std::filesystem;
 
 // Server config constants
@@ -83,9 +86,68 @@ int main() {
             }
         );
         
-        // Register the CORS filter
-        auto corsFilterPtr = std::make_shared<CorsFilter>();
-        drogon::app().registerFilter(corsFilterPtr);
+        // Create a file upload handler
+        drogon::app().registerHandler(
+            "/api/upload",
+            [](const drogon::HttpRequestPtr &req,
+              std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
+                auto resp = drogon::HttpResponse::newHttpResponse();
+                
+                // Check if this is a multipart/form-data request
+                if (req->getContentType() != drogon::CT_MULTIPART_FORM_DATA) {
+                    resp->setStatusCode(drogon::k400BadRequest);
+                    resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+                    resp->setBody("{\"error\":true,\"message\":\"Expecting multipart/form-data request\"}");
+                    callback(resp);
+                    return;
+                }
+                
+                // Get the uploaded files
+                auto files = req->getUploadedFiles();
+                if (files.empty()) {
+                    resp->setStatusCode(drogon::k400BadRequest);
+                    resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+                    resp->setBody("{\"error\":true,\"message\":\"No files uploaded\"}");
+                    callback(resp);
+                    return;
+                }
+                
+                // First file in the request
+                auto& file = files[0];
+                
+                // Generate a timestamp for the filename
+                auto now = std::chrono::system_clock::now();
+                auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+                    now.time_since_epoch()).count();
+                
+                // Create a unique filename
+                std::string filename = std::to_string(timestamp) + "_" + file.getFileName();
+                std::string filepath = "./uploads/" + filename;
+                
+                // Save the file
+                file.saveAs(filepath);
+                
+                // Return success response with file info
+                resp->setStatusCode(drogon::k200OK);
+                resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+                resp->setBody(
+                    "{\"success\":true,"
+                    "\"filename\":\"" + filename + "\","
+                    "\"originalName\":\"" + file.getFileName() + "\","
+                    "\"path\":\"" + filepath + "\","
+                    "\"size\":" + std::to_string(file.fileLength()) + "}"
+                );
+                callback(resp);
+            },
+            {drogon::Post}
+        );
+        
+        // // Register the CORS filter
+        // auto corsFilterPtr = std::make_shared<CorsFilter>();
+        // drogon::app().registerFilter(corsFilterPtr);
+        
+        // // Register controllers
+        // drogon::app().registerController(std::make_shared<logai::web::AnomalyDetectionController>());
         
         // Configure server
         drogon::app()

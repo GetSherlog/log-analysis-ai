@@ -12,13 +12,12 @@ namespace web {
  * @class ApiController
  * @brief Base class for all LogAI API controllers
  */
-class ApiController : public drogon::HttpController<ApiController> {
+class ApiController {
 public:
     ApiController() = default;
     virtual ~ApiController() = default;
 
-    // Required by Drogon framework
-    static void initPathRouting() {}
+    // No need for Drogon-specific methods here
 
 protected:
     /**

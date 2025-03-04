@@ -3,10 +3,17 @@
 # Set minimum CMake version
 cmake_minimum_required(VERSION 3.10)
 
-# Source files - Only include LogAIServer.cpp 
-set(SERVER_SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/LogAIServer.cpp")
-# No need for controller headers
-set(SERVER_HEADERS "")
+# Source files
+set(SERVER_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/LogAIServer.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/controllers/AnomalyDetectionController.cpp"
+)
+
+# Headers
+set(SERVER_HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/controllers/ApiController.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/controllers/AnomalyDetectionController.h"
+)
 
 # Find required packages
 # Only find Drogon if it hasn't been found yet
@@ -37,9 +44,12 @@ target_include_directories(logai_web_server
     PRIVATE ${DROGON_INCLUDE_DIRS}
 )
 
-# Simplified link the libraries - only what we need
+# Link the libraries
 target_link_libraries(logai_web_server 
     PRIVATE ${DROGON_LIBRARIES}
+    PRIVATE logai
+    PRIVATE nlohmann_json::nlohmann_json
+    PRIVATE Eigen3::Eigen
 )
 
 # Installation

@@ -3,6 +3,8 @@
 #include <vector>
 #include <string>
 #include <Eigen/Dense>
+#include "regex_parser.h"
+#include "data_loader_config.h"
 
 using json = nlohmann::json;
 using MatrixXd = Eigen::MatrixXd;
@@ -73,23 +75,151 @@ void AnomalyDetectionController::extractFeatures(
         return;
     }
     
-    // Extract features
-    auto features = featureExtractor_->transform(logLines);
+    // Check if we need to update the feature extractor config
+    bool configUpdated = false;
+    FeatureExtractorConfig newConfig;
     
-    // Prepare response
-    json response;
-    response["features"] = json::array();
-    
-    for (size_t i = 0; i < features.rows(); ++i) {
-        json featureVector = json::array();
-        for (size_t j = 0; j < features.cols(); ++j) {
-            featureVector.push_back(features(i, j));
+    // Process group_by_category
+    if (requestJson.contains("groupByCategory") && requestJson["groupByCategory"].is_array()) {
+        configUpdated = true;
+        newConfig.group_by_category.clear();
+        for (const auto& category : requestJson["groupByCategory"]) {
+            if (category.is_string()) {
+                newConfig.group_by_category.push_back(category.get<std::string>());
+            }
         }
-        response["features"].push_back(featureVector);
     }
     
-    response["totalFeatures"] = features.rows();
-    response["featureDimension"] = features.cols();
+    // Process group_by_time
+    if (requestJson.contains("groupByTime") && requestJson["groupByTime"].is_string()) {
+        configUpdated = true;
+        newConfig.group_by_time = requestJson["groupByTime"].get<std::string>();
+    }
+    
+    // Process sliding_window
+    if (requestJson.contains("slidingWindow") && requestJson["slidingWindow"].is_number_integer()) {
+        configUpdated = true;
+        newConfig.sliding_window = requestJson["slidingWindow"].get<int>();
+    }
+    
+    // Process steps
+    if (requestJson.contains("steps") && requestJson["steps"].is_number_integer()) {
+        configUpdated = true;
+        newConfig.steps = requestJson["steps"].get<int>();
+    }
+    
+    // Process max_feature_len
+    if (requestJson.contains("maxFeatureLength") && requestJson["maxFeatureLength"].is_number_integer()) {
+        configUpdated = true;
+        newConfig.max_feature_len = requestJson["maxFeatureLength"].get<int>();
+    }
+    
+    // Update feature extractor if config changed
+    if (configUpdated) {
+        featureExtractor_ = std::make_unique<FeatureExtractor>(newConfig);
+    }
+    
+    // Parse log lines into LogRecordObjects
+    std::vector<LogRecordObject> logRecords;
+    logRecords.reserve(logLines.size());
+    
+    // Process timestamp format if provided
+    std::string timestampFormat = "%Y-%m-%d %H:%M:%S";
+    if (requestJson.contains("timestampFormat") && requestJson["timestampFormat"].is_string()) {
+        timestampFormat = requestJson["timestampFormat"].get<std::string>();
+    }
+    
+    // Create parser config
+    DataLoaderConfig parserConfig;
+    parserConfig.datetime_format = timestampFormat;
+    
+    // Set regex pattern - either use default or provided pattern
+    std::string pattern = "(.*)";  // Default pattern treats whole line as body
+    if (requestJson.contains("regexPattern") && requestJson["regexPattern"].is_string()) {
+        pattern = requestJson["regexPattern"].get<std::string>();
+    }
+    
+    // Create a regex parser for the log lines
+    RegexParser parser(parserConfig, pattern);
+    
+    for (const auto& line : logLines) {
+        try {
+            logRecords.push_back(parser.parse_line(line));
+        } catch (const std::exception& e) {
+            // Skip lines that fail to parse
+            continue;
+        }
+    }
+    
+    if (logRecords.empty()) {
+        callback(createErrorResponse("Failed to parse any log lines"));
+        return;
+    }
+    
+    // Determine which extraction method to use
+    std::string method = "counter_vector";  // Default method
+    if (requestJson.contains("method") && requestJson["method"].is_string()) {
+        method = requestJson["method"].get<std::string>();
+    }
+    
+    FeatureExtractionResult extractionResult;
+    
+    if (method == "feature_vector") {
+        // For feature_vector, we need log vectors
+        // In a real implementation, these would come from a vectorizer
+        // For now, we'll create a simple dummy table
+        std::shared_ptr<arrow::Table> logVectors;
+        
+        // Check if log vectors are provided in the request
+        if (requestJson.contains("logVectors") && requestJson["logVectors"].is_array()) {
+            // Process log vectors from request
+            // This is a simplified implementation
+            // In a real app, you'd parse the vectors properly
+            callback(createErrorResponse("Log vectors from request not implemented yet"));
+            return;
+        } else {
+            // Use convert_to_counter_vector as fallback
+            extractionResult = featureExtractor_->convert_to_counter_vector(logRecords);
+        }
+    } else if (method == "sequence") {
+        // Use convert_to_sequence
+        extractionResult = featureExtractor_->convert_to_sequence(logRecords);
+    } else {
+        // Default: use convert_to_counter_vector
+        extractionResult = featureExtractor_->convert_to_counter_vector(logRecords);
+    }
+    
+    // Prepare response JSON
+    json response;
+    response["method"] = method;
+    response["groups"] = json::array();
+    
+    // Add each group to the response
+    for (size_t i = 0; i < extractionResult.event_indices.size(); ++i) {
+        json group;
+        
+        // Add group identifiers
+        group["groupIdentifiers"] = extractionResult.group_identifiers[i];
+        
+        // Add event indices
+        group["eventIndices"] = extractionResult.event_indices[i];
+        
+        // Add count if available
+        if (i < extractionResult.counts.size()) {
+            group["count"] = extractionResult.counts[i];
+        }
+        
+        // Add sequence if available
+        if (method == "sequence" && i < extractionResult.sequences.size()) {
+            group["sequence"] = extractionResult.sequences[i];
+        }
+        
+        response["groups"].push_back(group);
+    }
+    
+    // Add summary statistics
+    response["totalGroups"] = extractionResult.event_indices.size();
+    response["totalEvents"] = logRecords.size();
     
     callback(createJsonResponse(response));
 }
