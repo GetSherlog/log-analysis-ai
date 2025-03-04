@@ -1,43 +1,54 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Navigation from '../../components/Navigation';
 import { FaChartLine, FaGear, FaRegLightbulb, FaDownload, FaTable } from 'react-icons/fa6';
 import { Bar } from 'react-chartjs-2';
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartData } from 'chart.js';
+import { toast } from 'react-toastify';
+import { parseFile, extractFeatures, detectAnomaliesOcSvm, DrainParserResponse, FileParserResponse, FeatureExtractionResponse, OcSvmAnomalyDetectionResponse } from '../../lib/api';
 
 // Register Chart.js components
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 
+// Interface for uploaded file data
+interface UploadedFileData {
+  path: string;
+  filename: string;
+  originalName: string;
+  size: number;
+  parserId: string;
+}
+
 export default function AnalysisPage() {
-  const [activeStep, setActiveStep] = useState(2); // Start with parsing since upload is done
-  const [parseProgress, setParseProgress] = useState(100); // Completed
-  const [featureExtractionProgress, setFeatureExtractionProgress] = useState(70);
+  const router = useRouter();
+  const [activeStep, setActiveStep] = useState(1); // Start with parsing
+  const [parseProgress, setParseProgress] = useState(0);
+  const [featureExtractionProgress, setFeatureExtractionProgress] = useState(0);
   const [anomalyDetectionProgress, setAnomalyDetectionProgress] = useState(0);
   const [showTemplates, setShowTemplates] = useState(false);
-
-  // Mock data for log templates
-  const templates = [
-    { id: 1, template: 'User [*] logged in successfully', count: 245 },
-    { id: 2, template: 'Failed login attempt for user [*] from IP [*]', count: 18 },
-    { id: 3, template: 'Database connection failed: [*]', count: 7 },
-    { id: 4, template: 'API request completed in [*] ms', count: 326 },
-    { id: 5, template: 'System shutdown initiated by [*]', count: 3 },
-  ];
-
-  // Chart data for log templates
-  const chartData = {
-    labels: templates.map(t => `Template ${t.id}`),
+  const [uploadedFile, setUploadedFile] = useState<UploadedFileData | null>(null);
+  
+  // State for storing API results
+  const [parsingResults, setParsingResults] = useState<FileParserResponse | null>(null);
+  const [templates, setTemplates] = useState<Array<{id: number, template: string, count: number}>>([]);
+  const [featureResults, setFeatureResults] = useState<FeatureExtractionResponse | null>(null);
+  const [anomalyResults, setAnomalyResults] = useState<OcSvmAnomalyDetectionResponse | null>(null);
+  
+  // Chart data with proper typing
+  const [chartData, setChartData] = useState<ChartData<'bar', number[], string>>({
+    labels: [],
     datasets: [
       {
         label: 'Occurrence Count',
-        data: templates.map(t => t.count),
+        data: [],
         backgroundColor: 'rgba(14, 165, 233, 0.6)',
         borderColor: 'rgb(14, 165, 233)',
         borderWidth: 1,
       },
     ],
-  };
+  });
 
   const chartOptions = {
     responsive: true,
@@ -51,31 +62,157 @@ export default function AnalysisPage() {
       },
     },
   };
-
-  const handleRunFeatureExtraction = () => {
-    // Simulate feature extraction progress
-    setActiveStep(3);
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 5;
-      setFeatureExtractionProgress(progress);
-      if (progress >= 100) {
-        clearInterval(interval);
+  
+  // Load uploaded file info from sessionStorage
+  useEffect(() => {
+    const storedData = sessionStorage.getItem('uploadedFile');
+    if (storedData) {
+      try {
+        const fileData = JSON.parse(storedData) as UploadedFileData;
+        setUploadedFile(fileData);
+        // Start parsing automatically
+        handleParseFile(fileData);
+      } catch (error) {
+        console.error('Error parsing stored file data:', error);
+        toast.error('Error loading file information. Please upload your file again.');
+        setTimeout(() => {
+          router.push('/upload');
+        }, 1500);
       }
-    }, 200);
+    } else {
+      toast.info('No uploaded file found. Please upload a file first.');
+      setTimeout(() => {
+        router.push('/upload');
+      }, 1500);
+    }
+  }, [router]);
+
+  const handleParseFile = async (fileData: UploadedFileData) => {
+    setActiveStep(2);
+    setParseProgress(10);
+    
+    try {
+      // Call the file parser API
+      const result = await parseFile({
+        filePath: fileData.path,
+        maxLines: 1000 // Limit to 1000 lines for the demo
+      });
+      
+      setParseProgress(70);
+      setParsingResults(result);
+      
+      // Generate templates from the parsed data
+      // In a real implementation, this would use the DRAIN parser
+      // Here we'll just simulate some templates
+      const mockTemplates = [
+        { id: 1, template: 'User [*] logged in successfully', count: 245 },
+        { id: 2, template: 'Failed login attempt for user [*] from IP [*]', count: 18 },
+        { id: 3, template: 'Database connection failed: [*]', count: 7 },
+        { id: 4, template: 'API request completed in [*] ms', count: 326 },
+        { id: 5, template: 'System shutdown initiated by [*]', count: 3 },
+      ];
+      
+      setTemplates(mockTemplates);
+      setChartData({
+        labels: mockTemplates.map(t => `Template ${t.id}`),
+        datasets: [
+          {
+            label: 'Occurrence Count',
+            data: mockTemplates.map(t => t.count),
+            backgroundColor: 'rgba(14, 165, 233, 0.6)',
+            borderColor: 'rgb(14, 165, 233)',
+            borderWidth: 1,
+          },
+        ],
+      });
+      
+      setParseProgress(100);
+    } catch (error) {
+      console.error('Parsing error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to parse file. Please try again.');
+      setParseProgress(0);
+    }
   };
 
-  const handleRunAnomalyDetection = () => {
-    // Simulate anomaly detection progress
+  const handleRunFeatureExtraction = async () => {
+    if (!parsingResults) {
+      toast.error('No parsing results available. Please parse the file first.');
+      return;
+    }
+    
+    setActiveStep(3);
+    setFeatureExtractionProgress(10);
+    
+    try {
+      // Extract messages from parsing results
+      const logLines = parsingResults.records.map(record => record.message);
+      
+      // Call the feature extraction API
+      const result = await extractFeatures({
+        logLines: logLines
+      });
+      
+      setFeatureResults(result);
+      setFeatureExtractionProgress(100);
+    } catch (error) {
+      console.error('Feature extraction error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to extract features. Please try again.');
+      setFeatureExtractionProgress(0);
+    }
+  };
+
+  const handleRunAnomalyDetection = async () => {
+    if (!featureResults) {
+      toast.error('No feature results available. Please extract features first.');
+      return;
+    }
+    
     setActiveStep(4);
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 5;
-      setAnomalyDetectionProgress(progress);
-      if (progress >= 100) {
-        clearInterval(interval);
-      }
-    }, 200);
+    setAnomalyDetectionProgress(10);
+    
+    try {
+      // Call the anomaly detection API
+      const result = await detectAnomaliesOcSvm({
+        featureVectors: featureResults.features,
+        kernel: 'rbf',
+        nu: 0.1
+      });
+      
+      setAnomalyResults(result);
+      setAnomalyDetectionProgress(100);
+    } catch (error) {
+      console.error('Anomaly detection error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to detect anomalies. Please try again.');
+      setAnomalyDetectionProgress(0);
+    }
+  };
+  
+  const handleDownloadResults = () => {
+    if (!anomalyResults) {
+      toast.error('No anomaly detection results available');
+      return;
+    }
+    
+    // Create a JSON blob with the results
+    const dataStr = JSON.stringify({
+      parsing: parsingResults,
+      features: featureResults,
+      anomalies: anomalyResults
+    }, null, 2);
+    
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    // Create download link and trigger download
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'logai-analysis-results.json';
+    document.body.appendChild(a);
+    a.click();
+    
+    // Clean up
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -106,7 +243,7 @@ export default function AnalysisPage() {
               </div>
               <div className="flex-auto border-t-2 border-primary-600"></div>
               
-              <div className="flex items-center text-primary-600 relative">
+              <div className={`flex items-center relative ${activeStep >= 2 ? 'text-primary-600' : 'text-gray-500'}`}>
                 <div className={`rounded-full h-12 w-12 flex items-center justify-center ${activeStep >= 2 ? 'bg-primary-600 text-white' : 'bg-gray-200 text-gray-600'}`}>
                   2
                 </div>
@@ -164,6 +301,13 @@ export default function AnalysisPage() {
                 style={{ width: `${parseProgress}%` }}
               ></div>
             </div>
+            
+            {uploadedFile && (
+              <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                <p className="font-medium">Processing file:</p>
+                <p className="text-sm text-gray-600">{uploadedFile.originalName} ({(uploadedFile.size / 1024).toFixed(2)} KB)</p>
+              </div>
+            )}
             
             {parseProgress === 100 && (
               <div className="mt-4">
@@ -247,14 +391,22 @@ export default function AnalysisPage() {
               ></div>
             </div>
             
-            {featureExtractionProgress === 100 && (
-              <div className="mt-6 flex justify-end">
-                <button
-                  onClick={handleRunAnomalyDetection}
-                  className="btn-primary"
-                >
-                  Run Anomaly Detection
-                </button>
+            {featureExtractionProgress === 100 && featureResults && (
+              <div className="mt-4">
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="font-medium">Feature Extraction Results:</p>
+                  <p className="text-sm text-gray-600">Total features: {featureResults.totalFeatures}</p>
+                  <p className="text-sm text-gray-600">Feature dimension: {featureResults.featureDimension}</p>
+                </div>
+                
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={handleRunAnomalyDetection}
+                    className="btn-primary"
+                  >
+                    Run Anomaly Detection
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -277,14 +429,24 @@ export default function AnalysisPage() {
               ></div>
             </div>
             
-            {anomalyDetectionProgress === 100 && (
-              <div className="mt-6 flex justify-end">
-                <button
-                  className="btn-primary flex items-center"
-                >
-                  <FaDownload className="mr-2" />
-                  Download Results
-                </button>
+            {anomalyDetectionProgress === 100 && anomalyResults && (
+              <div className="mt-4">
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <p className="font-medium">Anomaly Detection Results:</p>
+                  <p className="text-sm text-gray-600">Total samples: {anomalyResults.totalSamples}</p>
+                  <p className="text-sm text-gray-600">Anomalies found: {anomalyResults.anomalyCount}</p>
+                  <p className="text-sm text-gray-600">Anomaly percentage: {((anomalyResults.anomalyCount / anomalyResults.totalSamples) * 100).toFixed(2)}%</p>
+                </div>
+                
+                <div className="mt-6 flex justify-end">
+                  <button
+                    onClick={handleDownloadResults}
+                    className="btn-primary flex items-center"
+                  >
+                    <FaDownload className="mr-2" />
+                    Download Results
+                  </button>
+                </div>
               </div>
             )}
           </div>

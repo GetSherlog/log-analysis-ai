@@ -2,15 +2,19 @@
 
 import { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
+import { useRouter } from 'next/navigation';
 import Navigation from '../../components/Navigation';
 import { FaUpload, FaSpinner } from 'react-icons/fa';
 import { toast } from 'react-toastify';
+import { uploadFile } from '../../lib/api';
 
 export default function UploadPage() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [parserId, setParserId] = useState('drain');
+  const [uploadedFilePath, setUploadedFilePath] = useState('');
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -38,22 +42,33 @@ export default function UploadPage() {
     setUploading(true);
     
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append('parser_id', parserId);
+      // Use the API client to upload the file
+      const data = await uploadFile(file, parserId);
       
-      // In a real implementation, this would be a fetch to your API
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Simulating API call
+      // Store the file path for later use
+      setUploadedFilePath(data.path);
       
-      // Mock successful upload
+      // Set success state
       setUploadSuccess(true);
       toast.success('File uploaded successfully!');
       
-      // Redirect to parsing page would happen here in a real implementation
-      // router.push('/analysis');
+      // Store upload information in sessionStorage for use in the analysis page
+      sessionStorage.setItem('uploadedFile', JSON.stringify({
+        path: data.path,
+        filename: data.filename,
+        originalName: data.originalName,
+        size: data.size,
+        parserId: parserId
+      }));
+      
+      // Automatically redirect to analysis page after success
+      setTimeout(() => {
+        router.push('/analysis');
+      }, 1500);
+      
     } catch (error) {
       console.error('Upload error:', error);
-      toast.error('Failed to upload file. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'Failed to upload file. Please try again.');
     } finally {
       setUploading(false);
     }
