@@ -4,7 +4,6 @@
  */
 
 #include <drogon/drogon.h>
-#include <drogon/MultiPartParser.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -82,6 +81,7 @@ int main() {
             .setThreadNum(DEFAULT_THREAD_NUM)
             .setDocumentRoot("./src/web_server/web")
             .setUploadPath(UPLOAD_PATH)
+            .setClientMaxBodySize(1024 * 1024 * 1024); // 1GB in bytes
             .run();
         
         return 0;

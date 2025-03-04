@@ -2,6 +2,9 @@
 
 #include "ApiController.h"
 #include <drogon/HttpController.h>
+#include <drogon/HttpRequest.h>
+#include <drogon/HttpResponse.h>
+#include <drogon/MultiPartParser.h>
 #include <chrono>
 #include <filesystem>
 
@@ -59,19 +62,9 @@ public:
         spdlog::debug("File upload request received");
         auto resp = drogon::HttpResponse::newHttpResponse();
         
-        // Check if this is a multipart/form-data request
-        if (req->getContentType() != drogon::CT_MULTIPART_FORM_DATA) {
-            spdlog::warn("Invalid content type for file upload request");
-            resp->setStatusCode(drogon::k400BadRequest);
-            resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
-            resp->setBody("{\"error\":true,\"message\":\"Expecting multipart/form-data request\"}");
-            callback(resp);
-            return;
-        }
-        
-        // Parse multipart form data
-        auto &multipartParser = req->getMultipartParser();
-        if (!multipartParser) {
+        // Parse multipart form data using MultiPartParser
+        drogon::MultiPartParser fileUpload;
+        if (fileUpload.parse(req) != 0) {
             spdlog::error("Failed to parse multipart form data");
             resp->setStatusCode(drogon::k400BadRequest);
             resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
@@ -80,7 +73,7 @@ public:
             return;
         }
         
-        const auto &files = multipartParser->getFiles();
+        const auto &files = fileUpload.getFiles();
         if (files.empty()) {
             spdlog::warn("No files found in upload request");
             resp->setStatusCode(drogon::k400BadRequest);
