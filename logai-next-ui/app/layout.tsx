@@ -4,7 +4,7 @@ import { ToastContainer } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
 
 export const metadata: Metadata = {
-  title: 'LogAI - Log Analysis and Anomaly Detection',
+  title: 'Sherlog - Log Analysis and Anomaly Detection',
   description: 'High-performance log analysis and anomaly detection platform',
 }
 
@@ -16,7 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <ToastContainer position="top-right" autoClose={5000} />
+        <ToastContainer position="bottom-right" />
         {children}
       </body>
     </html>

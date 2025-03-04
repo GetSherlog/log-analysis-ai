@@ -206,7 +206,7 @@ export default function AnalysisPage() {
     // Create download link and trigger download
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'logai-analysis-results.json';
+    a.download = 'sherlog-analysis-results.json';
     document.body.appendChild(a);
     a.click();
     
