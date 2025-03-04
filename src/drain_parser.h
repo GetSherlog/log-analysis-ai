@@ -79,6 +79,20 @@ public:
      */
     LogRecordObject parse_line(std::string_view line) override;
 
+    /**
+     * Set the maximum depth of the parse tree
+     * 
+     * @param depth The maximum depth (default: 4)
+     */
+    void setDepth(int depth);
+
+    /**
+     * Set the similarity threshold for grouping logs
+     * 
+     * @param threshold The similarity threshold (default: 0.5)
+     */
+    void setSimilarityThreshold(double threshold);
+
 private:
     // Use PIMPL idiom to hide implementation details
     std::unique_ptr<DrainParserImpl> impl_;

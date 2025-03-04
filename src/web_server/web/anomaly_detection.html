@@ -162,6 +162,74 @@
             border: 1px solid #ddd;
             border-radius: 4px;
         }
+        .result-container {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .nav-tabs {
+            display: flex;
+            border-bottom: 1px solid #dee2e6;
+            margin-bottom: 15px;
+        }
+        .nav-item {
+            padding: 10px 15px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-radius: 4px 4px 0 0;
+            margin-right: 5px;
+        }
+        .nav-item.active {
+            border: 1px solid #dee2e6;
+            border-bottom: 1px solid white;
+            margin-bottom: -1px;
+            background-color: white;
+            font-weight: bold;
+        }
+        /* Add styles for workflow steps */
+        .workflow-steps {
+            display: flex;
+            margin-bottom: 20px;
+            overflow-x: auto;
+        }
+        .workflow-step {
+            padding: 10px 15px;
+            border: 1px solid #dee2e6;
+            background-color: #f8f9fa;
+            margin-right: 10px;
+            border-radius: 4px;
+            min-width: 120px;
+            text-align: center;
+            position: relative;
+        }
+        .workflow-step.active {
+            border-color: #3498db;
+            background-color: #ebf5fb;
+            font-weight: bold;
+        }
+        .workflow-step.completed {
+            border-color: #2ecc71;
+            background-color: #eafaf1;
+        }
+        .workflow-step.completed::after {
+            content: "✓";
+            color: #2ecc71;
+            margin-left: 5px;
+        }
+        .workflow-step:not(:last-child)::before {
+            content: "";
+            position: absolute;
+            right: -10px;
+            top: 50%;
+            height: 2px;
+            width: 10px;
+            background-color: #dee2e6;
+        }
     </style>
 </head>
 <body>
@@ -343,6 +411,158 @@
     </div>
     
     <div id="alertContainer"></div>
+    
+    <!-- New End-to-End Log Anomaly Detection Workflow -->
+    <div class="card" id="end-to-end-workflow">
+        <h2>End-to-End Log Anomaly Detection</h2>
+        <p>Upload a log file and run the complete anomaly detection pipeline from parsing through detection.</p>
+        
+        <div class="workflow-steps">
+            <div class="workflow-step active" id="step-upload">1. Upload Log File</div>
+            <div class="workflow-step" id="step-parse">2. Parse Logs</div>
+            <div class="workflow-step" id="step-extract">3. Extract Features</div>
+            <div class="workflow-step" id="step-detect">4. Detect Anomalies</div>
+            <div class="workflow-step" id="step-results">5. View Results</div>
+        </div>
+        
+        <!-- Step 1: Upload Log File -->
+        <div class="workflow-content" id="content-upload">
+            <div class="form-group">
+                <label for="logFileInput">Select Log File:</label>
+                <input type="file" id="logFileInput" accept=".log,.txt,.csv,.json">
+            </div>
+            
+            <div class="form-group">
+                <label for="parserType">Parser Type:</label>
+                <select id="parserType">
+                    <option value="drain" selected>Drain Parser</option>
+                    <option value="regex">Regex Parser</option>
+                </select>
+            </div>
+            
+            <div class="form-group" id="drainParserConfig">
+                <h3>Drain Parser Configuration</h3>
+                <div class="form-group">
+                    <label for="drainDepth">Depth:</label>
+                    <input type="number" id="drainDepth" value="4" min="1" max="10">
+                </div>
+                <div class="form-group">
+                    <label for="drainSimilarityThreshold">Similarity Threshold:</label>
+                    <input type="number" id="drainSimilarityThreshold" value="0.5" min="0.1" max="1.0" step="0.1">
+                </div>
+            </div>
+            
+            <button id="uploadButton" class="btn">Upload and Parse</button>
+        </div>
+        
+        <!-- Step 2: Parse Logs (shown after upload) -->
+        <div class="workflow-content hidden" id="content-parse">
+            <h3>Log Parsing Results</h3>
+            <div class="result-container" id="parsingResults"></div>
+            <button id="continueToFeatureExtraction" class="btn">Continue to Feature Extraction</button>
+        </div>
+        
+        <!-- Step 3: Feature Extraction -->
+        <div class="workflow-content hidden" id="content-extract">
+            <h3>Feature Extraction Configuration</h3>
+            <div class="form-group">
+                <label for="groupByTime">Group by Time:</label>
+                <select id="groupByTime">
+                    <option value="1min">1 minute</option>
+                    <option value="5min">5 minutes</option>
+                    <option value="15min" selected>15 minutes</option>
+                    <option value="1hour">1 hour</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="groupByCategories">Group by Categories:</label>
+                <input type="text" id="groupByCategories" value="parsed_logline" placeholder="Comma-separated categories">
+                <small>Common values: parsed_logline, host, service, id</small>
+            </div>
+            
+            <button id="extractFeaturesButton" class="btn">Extract Features</button>
+            
+            <div class="hidden" id="featureExtractionResults">
+                <h3>Feature Extraction Results</h3>
+                <div class="result-container" id="featureResults"></div>
+                <button id="continueToAnomalyDetection" class="btn">Continue to Anomaly Detection</button>
+            </div>
+        </div>
+        
+        <!-- Step 4: Anomaly Detection -->
+        <div class="workflow-content hidden" id="content-detect">
+            <h3>Anomaly Detection Configuration</h3>
+            <div class="form-group">
+                <label for="detectionAlgorithm">Detection Algorithm:</label>
+                <select id="detectionAlgorithm">
+                    <option value="isolation_forest" selected>Isolation Forest</option>
+                    <option value="ocsvm">One-Class SVM</option>
+                </select>
+            </div>
+            
+            <div class="form-group" id="isolationForestConfig">
+                <h4>Isolation Forest Parameters</h4>
+                <div class="form-group">
+                    <label for="ifEstimators">Number of Estimators:</label>
+                    <input type="number" id="ifEstimators" value="10" min="1" max="100">
+                </div>
+                <div class="form-group">
+                    <label for="ifMaxFeatures">Max Features:</label>
+                    <input type="number" id="ifMaxFeatures" value="100" min="1">
+                </div>
+            </div>
+            
+            <div class="form-group" id="ocsvmConfig" class="hidden">
+                <h4>One-Class SVM Parameters</h4>
+                <div class="form-group">
+                    <label for="ocsvmKernel">Kernel:</label>
+                    <select id="ocsvmKernel">
+                        <option value="rbf" selected>RBF</option>
+                        <option value="linear">Linear</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="ocsvmNu">Nu:</label>
+                    <input type="number" id="ocsvmNu" value="0.1" min="0.01" max="0.99" step="0.01">
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="trainTestSplit">Train/Test Split:</label>
+                <input type="range" id="trainTestSplit" min="10" max="90" value="70">
+                <span id="trainTestSplitValue">Train: 70% / Test: 30%</span>
+            </div>
+            
+            <button id="detectAnomaliesButton" class="btn">Detect Anomalies</button>
+        </div>
+        
+        <!-- Step 5: Results -->
+        <div class="workflow-content hidden" id="content-results">
+            <h3>Anomaly Detection Results</h3>
+            <div class="result-container" id="anomalyResults"></div>
+            
+            <div class="form-group">
+                <h4>Anomaly Statistics</h4>
+                <div id="anomalyStats"></div>
+            </div>
+            
+            <div class="form-group">
+                <h4>Anomalous Log Patterns</h4>
+                <div id="anomalyPatterns"></div>
+            </div>
+            
+            <button id="startNewAnalysis" class="btn">Start New Analysis</button>
+        </div>
+        
+        <!-- Progress indicator -->
+        <div class="progress-container hidden" id="workflowProgress">
+            <div class="progress-bar" id="workflowProgressBar">0%</div>
+        </div>
+        
+        <!-- Alert messages -->
+        <div class="alert hidden" id="workflowAlert"></div>
+    </div>
     
     <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.1/dist/chart.min.js"></script>
     <script>
@@ -923,6 +1143,537 @@
         
         // Initialize the page
         init();
+        
+        // End-to-End Log Anomaly Detection Workflow
+        document.addEventListener('DOMContentLoaded', function() {
+            // Workflow state
+            let workflowState = {
+                parsedLogLines: null,
+                uploadedFileName: null,
+                featureData: null,
+                trainData: null,
+                testData: null,
+                anomalyResults: null
+            };
+            
+            // UI Elements
+            const logFileInput = document.getElementById('logFileInput');
+            const parserType = document.getElementById('parserType');
+            const drainDepth = document.getElementById('drainDepth');
+            const drainSimilarityThreshold = document.getElementById('drainSimilarityThreshold');
+            const uploadButton = document.getElementById('uploadButton');
+            const parsingResults = document.getElementById('parsingResults');
+            const continueToFeatureExtraction = document.getElementById('continueToFeatureExtraction');
+            
+            const groupByTime = document.getElementById('groupByTime');
+            const groupByCategories = document.getElementById('groupByCategories');
+            const extractFeaturesButton = document.getElementById('extractFeaturesButton');
+            const featureResults = document.getElementById('featureResults');
+            const continueToAnomalyDetection = document.getElementById('continueToAnomalyDetection');
+            
+            const detectionAlgorithm = document.getElementById('detectionAlgorithm');
+            const isolationForestConfig = document.getElementById('isolationForestConfig');
+            const ocsvmConfig = document.getElementById('ocsvmConfig');
+            const ifEstimators = document.getElementById('ifEstimators');
+            const ifMaxFeatures = document.getElementById('ifMaxFeatures');
+            const ocsvmKernel = document.getElementById('ocsvmKernel');
+            const ocsvmNu = document.getElementById('ocsvmNu');
+            const trainTestSplit = document.getElementById('trainTestSplit');
+            const trainTestSplitValue = document.getElementById('trainTestSplitValue');
+            const detectAnomaliesButton = document.getElementById('detectAnomaliesButton');
+            
+            const anomalyResults = document.getElementById('anomalyResults');
+            const anomalyStats = document.getElementById('anomalyStats');
+            const anomalyPatterns = document.getElementById('anomalyPatterns');
+            const startNewAnalysis = document.getElementById('startNewAnalysis');
+            
+            const workflowProgress = document.getElementById('workflowProgress');
+            const workflowProgressBar = document.getElementById('workflowProgressBar');
+            const workflowAlert = document.getElementById('workflowAlert');
+            
+            const workflowSteps = Array.from(document.querySelectorAll('.workflow-step'));
+            const workflowContents = Array.from(document.querySelectorAll('.workflow-content'));
+            
+            // Helper functions
+            function showStep(stepIndex) {
+                // Update step indicators
+                workflowSteps.forEach((step, index) => {
+                    if (index < stepIndex) {
+                        step.classList.add('completed');
+                        step.classList.remove('active');
+                    } else if (index === stepIndex) {
+                        step.classList.add('active');
+                        step.classList.remove('completed');
+                    } else {
+                        step.classList.remove('active', 'completed');
+                    }
+                });
+                
+                // Show only the current step content
+                workflowContents.forEach((content, index) => {
+                    content.classList.toggle('hidden', index !== stepIndex);
+                });
+            }
+            
+            function showProgress(show = true) {
+                workflowProgress.classList.toggle('hidden', !show);
+            }
+            
+            function updateProgress(percent, text = null) {
+                workflowProgressBar.style.width = `${percent}%`;
+                workflowProgressBar.textContent = text || `${percent}%`;
+            }
+            
+            function showAlert(message, isError = false) {
+                workflowAlert.textContent = message;
+                workflowAlert.className = isError ? 'alert alert-danger' : 'alert alert-success';
+                workflowAlert.classList.remove('hidden');
+                
+                setTimeout(() => {
+                    workflowAlert.classList.add('hidden');
+                }, 5000);
+            }
+            
+            // Event listeners
+            
+            // Toggle between algorithm configurations
+            detectionAlgorithm.addEventListener('change', function() {
+                const isIsolationForest = this.value === 'isolation_forest';
+                isolationForestConfig.classList.toggle('hidden', !isIsolationForest);
+                ocsvmConfig.classList.toggle('hidden', isIsolationForest);
+            });
+            
+            // Update train/test split display
+            trainTestSplit.addEventListener('input', function() {
+                const trainPercent = parseInt(this.value);
+                trainTestSplitValue.textContent = `Train: ${trainPercent}% / Test: ${100 - trainPercent}%`;
+            });
+            
+            // Handle file upload and parsing
+            uploadButton.addEventListener('click', async function() {
+                if (!logFileInput.files || logFileInput.files.length === 0) {
+                    showAlert('Please select a log file first', true);
+                    return;
+                }
+                
+                const file = logFileInput.files[0];
+                workflowState.uploadedFileName = file.name;
+                
+                showProgress();
+                updateProgress(10, 'Uploading file...');
+                
+                try {
+                    // Create a FormData and append the file
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    
+                    // Upload the file
+                    const uploadResponse = await fetch('/api/upload', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    if (!uploadResponse.ok) {
+                        throw new Error('File upload failed');
+                    }
+                    
+                    const uploadResult = await uploadResponse.json();
+                    updateProgress(40, 'File uploaded, parsing logs...');
+                    
+                    // Parse the uploaded file
+                    const parserConfig = {
+                        filePath: uploadResult.filePath,
+                        parserType: parserType.value
+                    };
+                    
+                    if (parserType.value === 'drain') {
+                        parserConfig.depth = parseInt(drainDepth.value);
+                        parserConfig.similarityThreshold = parseFloat(drainSimilarityThreshold.value);
+                    }
+                    
+                    const parseResponse = await fetch('/api/parser/file', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(parserConfig)
+                    });
+                    
+                    if (!parseResponse.ok) {
+                        throw new Error('Log parsing failed');
+                    }
+                    
+                    const parseResult = await parseResponse.json();
+                    updateProgress(100, 'Parsing complete');
+                    
+                    // Store parsed logs in workflow state
+                    workflowState.parsedLogLines = parseResult.parsedLogs;
+                    
+                    // Display results
+                    parsingResults.innerHTML = '';
+                    
+                    // Summary stats
+                    const summaryDiv = document.createElement('div');
+                    summaryDiv.innerHTML = `
+                        <h4>Parsing Summary</h4>
+                        <p>Total log lines: ${parseResult.totalLogs}</p>
+                        <p>Unique templates: ${parseResult.uniqueTemplates || 'N/A'}</p>
+                    `;
+                    parsingResults.appendChild(summaryDiv);
+                    
+                    // Sample of parsed logs
+                    const samplesDiv = document.createElement('div');
+                    samplesDiv.innerHTML = '<h4>Sample Parsed Logs</h4>';
+                    
+                    const sampleLogs = parseResult.parsedLogs.slice(0, 10);
+                    const samplesTable = document.createElement('table');
+                    samplesTable.style.width = '100%';
+                    samplesTable.style.borderCollapse = 'collapse';
+                    
+                    // Headers
+                    const headerRow = document.createElement('tr');
+                    ['#', 'Template', 'Parameters'].forEach(header => {
+                        const th = document.createElement('th');
+                        th.textContent = header;
+                        th.style.border = '1px solid #ddd';
+                        th.style.padding = '8px';
+                        th.style.textAlign = 'left';
+                        headerRow.appendChild(th);
+                    });
+                    samplesTable.appendChild(headerRow);
+                    
+                    // Data rows
+                    sampleLogs.forEach((log, index) => {
+                        const row = document.createElement('tr');
+                        
+                        const numCell = document.createElement('td');
+                        numCell.textContent = index + 1;
+                        numCell.style.border = '1px solid #ddd';
+                        numCell.style.padding = '8px';
+                        row.appendChild(numCell);
+                        
+                        const templateCell = document.createElement('td');
+                        templateCell.textContent = log.template;
+                        templateCell.style.border = '1px solid #ddd';
+                        templateCell.style.padding = '8px';
+                        row.appendChild(templateCell);
+                        
+                        const paramsCell = document.createElement('td');
+                        paramsCell.textContent = JSON.stringify(log.parameters);
+                        paramsCell.style.border = '1px solid #ddd';
+                        paramsCell.style.padding = '8px';
+                        row.appendChild(paramsCell);
+                        
+                        samplesTable.appendChild(row);
+                    });
+                    
+                    samplesDiv.appendChild(samplesTable);
+                    parsingResults.appendChild(samplesDiv);
+                    
+                    showProgress(false);
+                    showStep(1); // Move to parsing results step
+                    
+                } catch (error) {
+                    console.error('Error during file upload or parsing:', error);
+                    showProgress(false);
+                    showAlert('Error: ' + error.message, true);
+                }
+            });
+            
+            // Continue to feature extraction
+            continueToFeatureExtraction.addEventListener('click', function() {
+                showStep(2); // Move to feature extraction step
+            });
+            
+            // Handle feature extraction
+            extractFeaturesButton.addEventListener('click', async function() {
+                if (!workflowState.parsedLogLines || workflowState.parsedLogLines.length === 0) {
+                    showAlert('No parsed log data available', true);
+                    return;
+                }
+                
+                showProgress();
+                updateProgress(20, 'Extracting features...');
+                
+                try {
+                    // Get the group by categories as an array
+                    const groupByCategoriesArray = groupByCategories.value
+                        .split(',')
+                        .map(cat => cat.trim())
+                        .filter(cat => cat.length > 0);
+                    
+                    const featureExtractionRequest = {
+                        parsedLogs: workflowState.parsedLogLines,
+                        groupByTime: groupByTime.value,
+                        groupByCategory: groupByCategoriesArray
+                    };
+                    
+                    const featureResponse = await fetch('/api/features/extract', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(featureExtractionRequest)
+                    });
+                    
+                    if (!featureResponse.ok) {
+                        throw new Error('Feature extraction failed');
+                    }
+                    
+                    const featureResult = await featureResponse.json();
+                    updateProgress(100, 'Features extracted');
+                    
+                    // Store feature data in workflow state
+                    workflowState.featureData = featureResult.features;
+                    
+                    // Display results
+                    featureResults.innerHTML = '';
+                    
+                    // Summary stats
+                    const summaryDiv = document.createElement('div');
+                    summaryDiv.innerHTML = `
+                        <h4>Feature Extraction Summary</h4>
+                        <p>Features generated: ${featureResult.features.length || 0}</p>
+                        <p>Feature dimensions: ${featureResult.dimensions || 'N/A'}</p>
+                    `;
+                    featureResults.appendChild(summaryDiv);
+                    
+                    // Sample of feature vectors
+                    if (featureResult.features && featureResult.features.length > 0) {
+                        const samplesDiv = document.createElement('div');
+                        samplesDiv.innerHTML = '<h4>Sample Feature Vectors</h4>';
+                        
+                        const sampleFeatures = featureResult.features.slice(0, 5);
+                        const pre = document.createElement('pre');
+                        pre.textContent = JSON.stringify(sampleFeatures, null, 2);
+                        
+                        samplesDiv.appendChild(pre);
+                        featureResults.appendChild(samplesDiv);
+                    }
+                    
+                    // Show feature extraction results and continue button
+                    document.getElementById('featureExtractionResults').classList.remove('hidden');
+                    
+                    showProgress(false);
+                    
+                } catch (error) {
+                    console.error('Error during feature extraction:', error);
+                    showProgress(false);
+                    showAlert('Error: ' + error.message, true);
+                }
+            });
+            
+            // Continue to anomaly detection
+            continueToAnomalyDetection.addEventListener('click', function() {
+                showStep(3); // Move to anomaly detection step
+            });
+            
+            // Handle anomaly detection
+            detectAnomaliesButton.addEventListener('click', async function() {
+                if (!workflowState.featureData || workflowState.featureData.length === 0) {
+                    showAlert('No feature data available', true);
+                    return;
+                }
+                
+                showProgress();
+                updateProgress(20, 'Preparing data for anomaly detection...');
+                
+                try {
+                    // Split data into training and testing sets
+                    const trainSplit = parseInt(trainTestSplit.value) / 100;
+                    const splitIndex = Math.floor(workflowState.featureData.length * trainSplit);
+                    
+                    workflowState.trainData = workflowState.featureData.slice(0, splitIndex);
+                    workflowState.testData = workflowState.featureData.slice(splitIndex);
+                    
+                    updateProgress(40, 'Running anomaly detection...');
+                    
+                    // Configure the request based on selected algorithm
+                    let anomalyDetectionRequest;
+                    let endpoint;
+                    
+                    if (detectionAlgorithm.value === 'isolation_forest') {
+                        endpoint = '/api/anomalies/isolation_forest';
+                        anomalyDetectionRequest = {
+                            trainData: workflowState.trainData,
+                            testData: workflowState.testData,
+                            algoParams: {
+                                n_estimators: parseInt(ifEstimators.value),
+                                max_features: parseInt(ifMaxFeatures.value)
+                            }
+                        };
+                    } else { // ocsvm
+                        endpoint = '/api/anomalies/ocsvm';
+                        anomalyDetectionRequest = {
+                            trainData: workflowState.trainData,
+                            testData: workflowState.testData,
+                            algoParams: {
+                                kernel: ocsvmKernel.value,
+                                nu: parseFloat(ocsvmNu.value)
+                            }
+                        };
+                    }
+                    
+                    const anomalyResponse = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(anomalyDetectionRequest)
+                    });
+                    
+                    if (!anomalyResponse.ok) {
+                        throw new Error('Anomaly detection failed');
+                    }
+                    
+                    const anomalyResult = await anomalyResponse.json();
+                    updateProgress(100, 'Anomaly detection complete');
+                    
+                    // Store results in workflow state
+                    workflowState.anomalyResults = anomalyResult;
+                    
+                    // Display results
+                    anomalyResults.innerHTML = '';
+                    
+                    // Summary stats
+                    const summaryDiv = document.createElement('div');
+                    summaryDiv.innerHTML = `
+                        <h4>Anomaly Detection Summary</h4>
+                        <p>Algorithm: ${detectionAlgorithm.options[detectionAlgorithm.selectedIndex].text}</p>
+                        <p>Test data points: ${workflowState.testData.length}</p>
+                        <p>Anomalies detected: ${anomalyResult.anomalyCount || 0}</p>
+                        <p>Anomaly rate: ${anomalyResult.anomalyRate ? (anomalyResult.anomalyRate * 100).toFixed(2) + '%' : 'N/A'}</p>
+                    `;
+                    anomalyResults.appendChild(summaryDiv);
+                    
+                    // Anomaly stats
+                    anomalyStats.innerHTML = '';
+                    
+                    if (anomalyResult.anomalies && anomalyResult.anomalies.length > 0) {
+                        const statsTable = document.createElement('table');
+                        statsTable.style.width = '100%';
+                        statsTable.style.borderCollapse = 'collapse';
+                        
+                        // Headers
+                        const headerRow = document.createElement('tr');
+                        ['#', 'Timestamp', 'Score', 'Features'].forEach(header => {
+                            const th = document.createElement('th');
+                            th.textContent = header;
+                            th.style.border = '1px solid #ddd';
+                            th.style.padding = '8px';
+                            th.style.textAlign = 'left';
+                            headerRow.appendChild(th);
+                        });
+                        statsTable.appendChild(headerRow);
+                        
+                        // Data rows for top 10 anomalies
+                        anomalyResult.anomalies.slice(0, 10).forEach((anomaly, index) => {
+                            const row = document.createElement('tr');
+                            
+                            const numCell = document.createElement('td');
+                            numCell.textContent = index + 1;
+                            numCell.style.border = '1px solid #ddd';
+                            numCell.style.padding = '8px';
+                            row.appendChild(numCell);
+                            
+                            const timeCell = document.createElement('td');
+                            timeCell.textContent = anomaly.timestamp || 'N/A';
+                            timeCell.style.border = '1px solid #ddd';
+                            timeCell.style.padding = '8px';
+                            row.appendChild(timeCell);
+                            
+                            const scoreCell = document.createElement('td');
+                            scoreCell.textContent = anomaly.score ? anomaly.score.toFixed(4) : 'N/A';
+                            scoreCell.style.border = '1px solid #ddd';
+                            scoreCell.style.padding = '8px';
+                            row.appendChild(scoreCell);
+                            
+                            const featuresCell = document.createElement('td');
+                            featuresCell.textContent = anomaly.features ? 
+                                Object.keys(anomaly.features).length + ' features' : 'N/A';
+                            featuresCell.style.border = '1px solid #ddd';
+                            featuresCell.style.padding = '8px';
+                            row.appendChild(featuresCell);
+                            
+                            statsTable.appendChild(row);
+                        });
+                        
+                        anomalyStats.appendChild(statsTable);
+                    } else {
+                        anomalyStats.textContent = 'No anomalies detected.';
+                    }
+                    
+                    // Anomaly patterns
+                    anomalyPatterns.innerHTML = '';
+                    
+                    if (anomalyResult.patterns && anomalyResult.patterns.length > 0) {
+                        const patternsList = document.createElement('ul');
+                        
+                        anomalyResult.patterns.forEach(pattern => {
+                            const li = document.createElement('li');
+                            li.textContent = pattern;
+                            patternsList.appendChild(li);
+                        });
+                        
+                        anomalyPatterns.appendChild(patternsList);
+                    } else {
+                        anomalyPatterns.textContent = 'No pattern information available.';
+                    }
+                    
+                    showProgress(false);
+                    showStep(4); // Move to results step
+                    
+                } catch (error) {
+                    console.error('Error during anomaly detection:', error);
+                    showProgress(false);
+                    showAlert('Error: ' + error.message, true);
+                }
+            });
+            
+            // Start new analysis
+            startNewAnalysis.addEventListener('click', function() {
+                // Reset workflow state
+                workflowState = {
+                    parsedLogLines: null,
+                    uploadedFileName: null,
+                    featureData: null,
+                    trainData: null,
+                    testData: null,
+                    anomalyResults: null
+                };
+                
+                // Reset form fields
+                logFileInput.value = '';
+                parserType.value = 'drain';
+                drainDepth.value = '4';
+                drainSimilarityThreshold.value = '0.5';
+                
+                groupByTime.value = '15min';
+                groupByCategories.value = 'parsed_logline';
+                
+                detectionAlgorithm.value = 'isolation_forest';
+                ifEstimators.value = '10';
+                ifMaxFeatures.value = '100';
+                ocsvmKernel.value = 'rbf';
+                ocsvmNu.value = '0.1';
+                trainTestSplit.value = '70';
+                trainTestSplitValue.textContent = 'Train: 70% / Test: 30%';
+                
+                // Reset displayed content
+                parsingResults.innerHTML = '';
+                featureResults.innerHTML = '';
+                document.getElementById('featureExtractionResults').classList.add('hidden');
+                anomalyResults.innerHTML = '';
+                anomalyStats.innerHTML = '';
+                anomalyPatterns.innerHTML = '';
+                
+                // Show first step
+                showStep(0);
+            });
+            
+            // Show algorithm config based on initial selection
+            detectionAlgorithm.dispatchEvent(new Event('change'));
+        });
     </script>
 </body>
 </html> 

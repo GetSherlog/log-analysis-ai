@@ -29,6 +29,9 @@ find_package(absl CONFIG REQUIRED)
 # Find Eigen
 find_package(Eigen3 REQUIRED)
 
+# Find fmt library
+find_package(fmt REQUIRED)
+
 # Create the web server executable
 add_executable(logai_web_server ${SERVER_SOURCES} ${SERVER_HEADERS})
 
@@ -52,6 +55,7 @@ target_link_libraries(logai_web_server
     PRIVATE logai
     PRIVATE nlohmann_json::nlohmann_json
     PRIVATE Eigen3::Eigen
+    PRIVATE fmt::fmt
 )
 
 # Installation

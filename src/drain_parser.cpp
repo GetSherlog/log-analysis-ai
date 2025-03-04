@@ -134,6 +134,15 @@ public:
         return record;
     }
     
+    // Setter methods for configuration
+    void setDepth(int depth) {
+        depth_ = depth;
+    }
+    
+    void setSimilarityThreshold(double threshold) {
+        similarity_threshold_ = threshold;
+    }
+    
 private:
     int depth_;
     double similarity_threshold_;
@@ -340,6 +349,14 @@ DrainParser::~DrainParser() = default;
 
 LogRecordObject DrainParser::parse_line(std::string_view line) {
     return impl_->parse(line, config_);
+}
+
+void DrainParser::setDepth(int depth) {
+    impl_->setDepth(depth);
+}
+
+void DrainParser::setSimilarityThreshold(double threshold) {
+    impl_->setSimilarityThreshold(threshold);
 }
 
 } // namespace logai 

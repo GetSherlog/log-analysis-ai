@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     libboost-all-dev python3 ninja-build pkg-config unzip \
     python3-pip nlohmann-json3-dev libjemalloc-dev \
     libgoogle-glog-dev libgflags-dev liblz4-dev libleveldb-dev \
-    libtbb-dev libhiredis-dev libspdlog-dev \
+    libtbb-dev libhiredis-dev libspdlog-dev libfmt-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Apache Arrow
@@ -89,7 +89,7 @@ RUN apt-get update && apt-get install -y \
     libssl-dev zlib1g-dev libjsoncpp-dev uuid-dev \
     libmariadb-dev libboost-all-dev libjemalloc-dev \
     libgoogle-glog-dev libgflags-dev liblz4-dev \
-    libleveldb-dev libtbb-dev curl libhiredis-dev libspdlog-dev \
+    libleveldb-dev libtbb-dev curl libhiredis-dev libspdlog-dev libfmt-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy all the libraries from the build stage

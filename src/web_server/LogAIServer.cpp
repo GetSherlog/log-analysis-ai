@@ -20,7 +20,7 @@ namespace fs = std::filesystem;
 
 // Server config constants
 const int DEFAULT_PORT = 8080;
-const int DEFAULT_THREAD_NUM = 2;
+const int DEFAULT_THREAD_NUM = 8;
 const std::string UPLOAD_PATH = "./uploads";
 const std::string LOG_PATH = "./logs";
 
@@ -81,7 +81,7 @@ int main() {
             .setThreadNum(DEFAULT_THREAD_NUM)
             .setDocumentRoot("./src/web_server/web")
             .setUploadPath(UPLOAD_PATH)
-            .setClientMaxBodySize(1024 * 1024 * 1024); // 1GB in bytes
+            .setClientMaxBodySize(1024 * 1024 * 1024) // 1GB in bytes
             .run();
         
         return 0;

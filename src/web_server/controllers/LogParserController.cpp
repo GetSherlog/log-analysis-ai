@@ -2,6 +2,7 @@
 #include "json_parser.h"
 #include "csv_parser.h"
 #include "regex_parser.h"
+#include "drain_parser.h"
 #include <filesystem>
 #include <nlohmann/json.hpp>
 
@@ -109,6 +110,14 @@ void LogParserController::parseFile(
     std::unique_ptr<LogParser> parser;
     std::string fileExt = fs::path(filePath).extension().string();
     
+    // Create data loader config
+    DataLoaderConfig config;
+    config.filePath = filePath;
+    
+    if (requestJson.contains("maxLines") && requestJson["maxLines"].is_number_integer()) {
+        config.maxLines = requestJson["maxLines"].get<int>();
+    }
+    
     if (fileExt == ".json") {
         parser = std::make_unique<JsonParser>();
     } else if (fileExt == ".csv") {
@@ -125,22 +134,32 @@ void LogParserController::parseFile(
             static_cast<CsvParser*>(parser.get())->setHasHeader(hasHeader);
         }
     } else {
-        // Default to regex parser for other file types
-        parser = std::make_unique<RegexParser>();
-        
-        // Configure regex pattern if provided
-        if (requestJson.contains("pattern") && requestJson["pattern"].is_string()) {
-            std::string pattern = requestJson["pattern"].get<std::string>();
-            static_cast<RegexParser*>(parser.get())->setPattern(pattern);
+        // Check if Drain parsing is requested
+        if (requestJson.contains("useDrainParser") && requestJson["useDrainParser"].is_boolean() && 
+            requestJson["useDrainParser"].get<bool>()) {
+            
+            // Use DrainParser for this file
+            parser = std::make_unique<DrainParser>(config);
+            
+            // Configure DrainParser if parameters are provided
+            if (requestJson.contains("depth") && requestJson["depth"].is_number_integer()) {
+                static_cast<DrainParser*>(parser.get())->setDepth(requestJson["depth"].get<int>());
+            }
+            
+            if (requestJson.contains("similarityThreshold") && requestJson["similarityThreshold"].is_number()) {
+                static_cast<DrainParser*>(parser.get())->setSimilarityThreshold(
+                    requestJson["similarityThreshold"].get<double>());
+            }
+        } else {
+            // Default to regex parser for other file types
+            parser = std::make_unique<RegexParser>();
+            
+            // Configure regex pattern if provided
+            if (requestJson.contains("pattern") && requestJson["pattern"].is_string()) {
+                std::string pattern = requestJson["pattern"].get<std::string>();
+                static_cast<RegexParser*>(parser.get())->setPattern(pattern);
+            }
         }
-    }
-    
-    // Create data loader config
-    DataLoaderConfig config;
-    config.filePath = filePath;
-    
-    if (requestJson.contains("maxLines") && requestJson["maxLines"].is_number_integer()) {
-        config.maxLines = requestJson["maxLines"].get<int>();
     }
     
     // Create file data loader
