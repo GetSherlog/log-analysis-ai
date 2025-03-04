@@ -5,6 +5,7 @@
 #include <Eigen/Dense>
 #include "regex_parser.h"
 #include "data_loader_config.h"
+#include <spdlog/spdlog.h>
 
 using json = nlohmann::json;
 using MatrixXd = Eigen::MatrixXd;
@@ -17,6 +18,8 @@ AnomalyDetectionController::AnomalyDetectionController() {
     // Initialize feature extractor with default config
     FeatureExtractorConfig feConfig;
     featureExtractor_ = std::make_unique<FeatureExtractor>(feConfig);
+    
+    spdlog::info("AnomalyDetectionController initialized with default configuration");
     
     // Initialize other components
     labelEncoder_ = std::make_unique<LabelEncoder>();
@@ -43,21 +46,27 @@ AnomalyDetectionController::AnomalyDetectionController() {
     kdParams.eps = 0.5;
     kdParams.min_samples = 5;
     dbscanKdtree_ = std::make_unique<DbScanClusteringKDTree>(kdParams);
+    
+    spdlog::debug("All anomaly detection components initialized");
 }
 
 void AnomalyDetectionController::extractFeatures(
     const drogon::HttpRequestPtr& req,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
     
+    spdlog::info("Starting feature extraction request processing");
+    
     // Parse request JSON
     json requestJson;
     if (!parseJsonBody(req, requestJson)) {
+        spdlog::error("Failed to parse JSON request body");
         callback(createErrorResponse("Invalid JSON in request body"));
         return;
     }
     
     // Validate request
     if (!requestJson.contains("logLines") || !requestJson["logLines"].is_array()) {
+        spdlog::error("Request validation failed: missing or invalid logLines array");
         callback(createErrorResponse("Request must contain 'logLines' array"));
         return;
     }
@@ -71,9 +80,12 @@ void AnomalyDetectionController::extractFeatures(
     }
     
     if (logLines.empty()) {
+        spdlog::error("No valid log lines found in request");
         callback(createErrorResponse("No valid log lines provided"));
         return;
     }
+    
+    spdlog::info("Received {} log lines for processing", logLines.size());
     
     // Check if we need to update the feature extractor config
     bool configUpdated = false;
@@ -88,34 +100,40 @@ void AnomalyDetectionController::extractFeatures(
                 newConfig.group_by_category.push_back(category.get<std::string>());
             }
         }
+        spdlog::debug("Updated group_by_category with {} categories", newConfig.group_by_category.size());
     }
     
     // Process group_by_time
     if (requestJson.contains("groupByTime") && requestJson["groupByTime"].is_string()) {
         configUpdated = true;
         newConfig.group_by_time = requestJson["groupByTime"].get<std::string>();
+        spdlog::debug("Updated group_by_time to: {}", newConfig.group_by_time);
     }
     
     // Process sliding_window
     if (requestJson.contains("slidingWindow") && requestJson["slidingWindow"].is_number_integer()) {
         configUpdated = true;
         newConfig.sliding_window = requestJson["slidingWindow"].get<int>();
+        spdlog::debug("Updated sliding_window to: {}", newConfig.sliding_window);
     }
     
     // Process steps
     if (requestJson.contains("steps") && requestJson["steps"].is_number_integer()) {
         configUpdated = true;
         newConfig.steps = requestJson["steps"].get<int>();
+        spdlog::debug("Updated steps to: {}", newConfig.steps);
     }
     
     // Process max_feature_len
     if (requestJson.contains("maxFeatureLength") && requestJson["maxFeatureLength"].is_number_integer()) {
         configUpdated = true;
         newConfig.max_feature_len = requestJson["maxFeatureLength"].get<int>();
+        spdlog::debug("Updated max_feature_len to: {}", newConfig.max_feature_len);
     }
     
     // Update feature extractor if config changed
     if (configUpdated) {
+        spdlog::info("Updating feature extractor with new configuration");
         featureExtractor_ = std::make_unique<FeatureExtractor>(newConfig);
     }
     
@@ -127,6 +145,7 @@ void AnomalyDetectionController::extractFeatures(
     std::string timestampFormat = "%Y-%m-%d %H:%M:%S";
     if (requestJson.contains("timestampFormat") && requestJson["timestampFormat"].is_string()) {
         timestampFormat = requestJson["timestampFormat"].get<std::string>();
+        spdlog::debug("Using custom timestamp format: {}", timestampFormat);
     }
     
     // Create parser config
@@ -137,57 +156,73 @@ void AnomalyDetectionController::extractFeatures(
     std::string pattern = "(.*)";  // Default pattern treats whole line as body
     if (requestJson.contains("regexPattern") && requestJson["regexPattern"].is_string()) {
         pattern = requestJson["regexPattern"].get<std::string>();
+        spdlog::debug("Using custom regex pattern: {}", pattern);
     }
     
     // Create a regex parser for the log lines
     RegexParser parser(parserConfig, pattern);
     
+    size_t parseFailures = 0;
     for (const auto& line : logLines) {
         try {
             logRecords.push_back(parser.parse_line(line));
         } catch (const std::exception& e) {
-            // Skip lines that fail to parse
+            parseFailures++;
+            spdlog::warn("Failed to parse log line: {}", e.what());
             continue;
         }
     }
     
+    if (parseFailures > 0) {
+        spdlog::warn("Failed to parse {} out of {} log lines", parseFailures, logLines.size());
+    }
+    
     if (logRecords.empty()) {
+        spdlog::error("No log records created after parsing");
         callback(createErrorResponse("Failed to parse any log lines"));
         return;
     }
+    
+    spdlog::info("Successfully parsed {} log records", logRecords.size());
     
     // Determine which extraction method to use
     std::string method = "counter_vector";  // Default method
     if (requestJson.contains("method") && requestJson["method"].is_string()) {
         method = requestJson["method"].get<std::string>();
     }
+    spdlog::info("Using feature extraction method: {}", method);
     
     FeatureExtractionResult extractionResult;
     
-    if (method == "feature_vector") {
-        // For feature_vector, we need log vectors
-        // In a real implementation, these would come from a vectorizer
-        // For now, we'll create a simple dummy table
-        std::shared_ptr<arrow::Table> logVectors;
-        
-        // Check if log vectors are provided in the request
-        if (requestJson.contains("logVectors") && requestJson["logVectors"].is_array()) {
-            // Process log vectors from request
-            // This is a simplified implementation
-            // In a real app, you'd parse the vectors properly
-            callback(createErrorResponse("Log vectors from request not implemented yet"));
-            return;
+    try {
+        if (method == "feature_vector") {
+            spdlog::debug("Attempting feature vector extraction");
+            // For feature_vector, we need log vectors
+            std::shared_ptr<arrow::Table> logVectors;
+            
+            // Check if log vectors are provided in the request
+            if (requestJson.contains("logVectors") && requestJson["logVectors"].is_array()) {
+                spdlog::error("Log vectors from request not implemented yet");
+                callback(createErrorResponse("Log vectors from request not implemented yet"));
+                return;
+            } else {
+                spdlog::info("No log vectors provided, falling back to counter_vector");
+                extractionResult = featureExtractor_->convert_to_counter_vector(logRecords);
+            }
+        } else if (method == "sequence") {
+            spdlog::debug("Performing sequence extraction");
+            extractionResult = featureExtractor_->convert_to_sequence(logRecords);
         } else {
-            // Use convert_to_counter_vector as fallback
+            spdlog::debug("Performing counter vector extraction");
             extractionResult = featureExtractor_->convert_to_counter_vector(logRecords);
         }
-    } else if (method == "sequence") {
-        // Use convert_to_sequence
-        extractionResult = featureExtractor_->convert_to_sequence(logRecords);
-    } else {
-        // Default: use convert_to_counter_vector
-        extractionResult = featureExtractor_->convert_to_counter_vector(logRecords);
+    } catch (const std::exception& e) {
+        spdlog::error("Feature extraction failed: {}", e.what());
+        callback(createErrorResponse("Feature extraction failed: " + std::string(e.what())));
+        return;
     }
+    
+    spdlog::info("Feature extraction completed with {} groups", extractionResult.event_indices.size());
     
     // Prepare response JSON
     json response;
@@ -214,12 +249,52 @@ void AnomalyDetectionController::extractFeatures(
             group["sequence"] = extractionResult.sequences[i];
         }
         
+        // Add feature vector if available
+        if (method == "feature_vector" && extractionResult.feature_vectors && 
+            i < static_cast<size_t>(extractionResult.feature_vectors->num_rows())) {
+            
+            json featureVector = json::array();
+            
+            try {
+                // Process each column in the feature vector
+                for (int col = 0; col < extractionResult.feature_vectors->num_columns(); ++col) {
+                    const auto& column = extractionResult.feature_vectors->column(col);
+                    
+                    if (column->type()->id() == arrow::Type::DOUBLE) {
+                        auto double_array = std::static_pointer_cast<arrow::DoubleArray>(column->chunk(0));
+                        if (!double_array->IsNull(i)) {
+                            featureVector.push_back(double_array->Value(i));
+                        } else {
+                            featureVector.push_back(0.0);  // Default value for null
+                        }
+                    } else if (column->type()->id() == arrow::Type::INT64) {
+                        auto int_array = std::static_pointer_cast<arrow::Int64Array>(column->chunk(0));
+                        if (!int_array->IsNull(i)) {
+                            featureVector.push_back(static_cast<double>(int_array->Value(i)));
+                        } else {
+                            featureVector.push_back(0.0);  // Default value for null
+                        }
+                    } else {
+                        // For other types, add a placeholder
+                        featureVector.push_back(0.0);
+                    }
+                }
+                
+                group["featureVector"] = featureVector;
+            } catch (const std::exception& e) {
+                spdlog::error("Failed to process feature vector for group {}: {}", i, e.what());
+            }
+        }
+        
         response["groups"].push_back(group);
     }
     
     // Add summary statistics
     response["totalGroups"] = extractionResult.event_indices.size();
     response["totalEvents"] = logRecords.size();
+    
+    spdlog::info("Response prepared with {} groups and {} total events", 
+                 extractionResult.event_indices.size(), logRecords.size());
     
     callback(createJsonResponse(response));
 }
