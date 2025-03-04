@@ -92,4 +92,24 @@ doxygen_output/
 # Profiling data
 gmon.out
 callgrind.out*
-perf.data* 
+perf.data*
+
+# Frontend related
+node_modules/
+.next/
+.nuxt/
+dist/
+build/
+.cache/
+.parcel-cache/
+coverage/
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.vercel
+.turbo 
