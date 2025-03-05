@@ -10,6 +10,7 @@
 #include <unordered_map>
 #include <mutex>
 #include <string>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -38,8 +39,13 @@ public:
     ADD_METHOD_TO(BasicApiController::progressEvents, "/api/upload/progress/{upload_id}", drogon::Get);
     METHOD_LIST_END
 
-    BasicApiController() = default;
-    ~BasicApiController() = default;
+    BasicApiController() {
+        // No cleanup timer needed
+    }
+    
+    ~BasicApiController() {
+        // No cleanup timer to invalidate
+    }
 
     /**
      * @brief Health check endpoint
@@ -133,8 +139,9 @@ public:
         
         // Parse multipart form data using MultiPartParser
         drogon::MultiPartParser fileUpload;
+        spdlog::info("Attempting to parse multipart form data for upload ID: {}", upload_id);
         if (fileUpload.parse(req) != 0) {
-            spdlog::error("Failed to parse multipart form data");
+            spdlog::error("Failed to parse multipart form data for upload ID: {}", upload_id);
             updateProgress(upload_id, 0, 0, "error", "Failed to parse multipart form data");
             closeStream(upload_id);
             resp->setStatusCode(drogon::k400BadRequest);
@@ -144,7 +151,9 @@ public:
             return;
         }
         
+        spdlog::info("Successfully parsed multipart form data for upload ID: {}", upload_id);
         const auto &files = fileUpload.getFiles();
+        spdlog::info("Found {} files in request for upload ID: {}", files.size(), upload_id);
         if (files.empty()) {
             spdlog::warn("No files found in upload request");
             updateProgress(upload_id, 0, 0, "error", "No files uploaded");
@@ -180,6 +189,13 @@ public:
             updateProgress(upload_id, fileSize, fileSize, "processing", "File received, processing...");
             spdlog::info("File received for upload {}, starting processing", upload_id);
             
+            // Check if the file already exists
+            if (fs::exists(filepath)) {
+                spdlog::warn("File already exists at path: {}", filepath);
+                // We'll continue and overwrite it
+            }
+            
+            spdlog::info("Attempting to save file to: {} for upload ID: {}", filepath, upload_id);
             file.saveAs(filepath);
             spdlog::info("File saved successfully: {}", filepath);
             
@@ -208,7 +224,16 @@ public:
             "\"size\":" + std::to_string(file.fileLength()) + ","
             "\"upload_id\":\"" + upload_id + "\"}"
         );
-        callback(resp);
+        
+        try {
+            spdlog::info("Sending success response for upload ID: {}", upload_id);
+            callback(resp);
+            spdlog::info("Response sent successfully for upload ID: {}", upload_id);
+        } catch (const std::exception& e) {
+            spdlog::error("Failed to send response for upload ID {}: {}", upload_id, e.what());
+        } catch (...) {
+            spdlog::error("Unknown error when sending response for upload ID: {}", upload_id);
+        }
     }
 
     /**
@@ -219,11 +244,9 @@ public:
         std::lock_guard<std::mutex> lock(streamsMutex_);
         auto it = activeStreams_.find(upload_id);
         if (it != activeStreams_.end()) {
-            // ResponseStream doesn't have a connected() method, just try to send a final message
             try {
                 std::string finalMessage = "event: close\ndata: {\"message\":\"Stream closed\"}\n\n";
                 it->second->send(finalMessage);
-                // Stream will be closed in the destructor
             } catch (const std::exception& e) {
                 spdlog::error("Error sending final message before closing stream: {}", e.what());
             }
@@ -238,7 +261,7 @@ private:
     std::unordered_map<std::string, UploadProgress> uploadProgress_;
     std::mutex progressMutex_;
     
-    // Additional private member needed for storing active streams
+    // Map to store active streams
     std::mutex streamsMutex_;
     std::unordered_map<std::string, drogon::ResponseStreamPtr> activeStreams_;
     
@@ -270,7 +293,6 @@ private:
             std::lock_guard<std::mutex> lock(streamsMutex_);
             auto it = activeStreams_.find(upload_id);
             if (it != activeStreams_.end()) {
-                // Cannot copy unique_ptr, we'll just send the event immediately
                 try {
                     sendProgressEvent(it->second, upload_id);
                 } catch (const std::exception& e) {
