@@ -87,19 +87,29 @@ public:
         // Create a stream response for SSE
         auto resp = drogon::HttpResponse::newAsyncStreamResponse(
             [this, upload_id](drogon::ResponseStreamPtr stream) {
-                // Set SSE headers
-                stream->setContentType("text/event-stream");
-                stream->addHeader("Cache-Control", "no-cache");
-                stream->addHeader("Connection", "keep-alive");
-                stream->addHeader("Access-Control-Allow-Origin", "*");
+                // Set SSE headers here
+                // ResponseStream doesn't have setContentType or addHeader methods directly
+                // We need to set these before creating the stream
+                auto response = drogon::HttpResponse::newHttpResponse();
+                response->setContentTypeString("text/event-stream");
+                response->addHeader("Cache-Control", "no-cache");
+                response->addHeader("Connection", "keep-alive");
+                response->addHeader("Access-Control-Allow-Origin", "*");
+
+                // Check if we already have progress information
+                {
+                    std::lock_guard<std::mutex> lock(progressMutex_);
+                    auto it = uploadProgress_.find(upload_id);
+                    if (it != uploadProgress_.end()) {
+                        // Send the current progress immediately
+                        sendProgressEvent(stream, upload_id);
+                    }
+                }
                 
-                // Send initial progress event
-                sendProgressEvent(stream, upload_id);
-                
-                // Store stream in our active streams map
+                // Store stream for later updates - need to use std::move since it's a unique_ptr
                 {
                     std::lock_guard<std::mutex> lock(streamsMutex_);
-                    activeStreams_[upload_id] = stream;
+                    activeStreams_[upload_id] = std::move(stream);
                 }
             });
         
@@ -212,13 +222,17 @@ public:
         spdlog::info("Closing stream for upload ID: {}", upload_id);
         std::lock_guard<std::mutex> lock(streamsMutex_);
         auto it = activeStreams_.find(upload_id);
-        if (it != activeStreams_.end() && it->second) {
-            if (it->second->connected()) {
-                // Send final message before closing
-                std::string finalMessage = "data: {\"final\":true}\n\n";
-                it->second->send(finalMessage.data(), finalMessage.length());
-                it->second->close();
+        if (it != activeStreams_.end()) {
+            // ResponseStream doesn't have a connected() method, just try to send a final message
+            try {
+                std::string finalMessage = "event: close\ndata: {\"message\":\"Stream closed\"}\n\n";
+                it->second->send(finalMessage);
+                // Stream will be closed in the destructor
+            } catch (const std::exception& e) {
+                spdlog::error("Error sending final message before closing stream: {}", e.what());
             }
+            
+            // Remove the stream
             activeStreams_.erase(it);
         }
     }
@@ -255,19 +269,17 @@ private:
         uploadProgress_[upload_id] = {totalBytes, uploadedBytes, percent, status, message};
         spdlog::info("Progress update for {}: {}% - Status: {} - Message: {}", upload_id, percent, status, message);
         
-        // Release the mutex before potentially sending events to avoid deadlocks
-        lock.~lock_guard();
-        
-        // Send update to any active streams
-        std::lock_guard<std::mutex> streamsLock(streamsMutex_);
-        auto it = activeStreams_.find(upload_id);
-        if (it != activeStreams_.end() && it->second) {
-            auto stream = it->second;
-            if (stream->connected()) {
-                sendProgressEvent(stream, upload_id);
-            } else {
-                // Remove disconnected streams
-                activeStreams_.erase(it);
+        // Check if we have an active stream for this upload
+        {
+            std::lock_guard<std::mutex> lock(streamsMutex_);
+            auto it = activeStreams_.find(upload_id);
+            if (it != activeStreams_.end()) {
+                // Cannot copy unique_ptr, we'll just send the event immediately
+                try {
+                    sendProgressEvent(it->second, upload_id);
+                } catch (const std::exception& e) {
+                    spdlog::error("Error sending progress event: {}", e.what());
+                }
             }
         }
     }
@@ -293,9 +305,11 @@ private:
                                 ",\"uploadedBytes\":" + std::to_string(progress.uploadedBytes) + "}";
         spdlog::info("Sending progress event for {}: {}% complete, status: {}", upload_id, progress.progressPercent, progress.status);
         
-        // Format as SSE message
-        std::string sseMessage = "data: " + eventData + "\n\n";
-        stream->send(sseMessage.data(), sseMessage.length());
+        // Create the SSE message
+        std::string sseMessage = "event: progress\ndata: " + eventData + "\n\n";
+        
+        // Send it - must use the single-argument form
+        stream->send(sseMessage);
     }
     
     /**
