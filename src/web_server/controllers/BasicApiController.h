@@ -84,34 +84,30 @@ public:
             }
         }
         
-        // Create a stream response for SSE
-        auto resp = drogon::HttpResponse::newAsyncStreamResponse(
-            [this, upload_id](drogon::ResponseStreamPtr stream) {
-                // Set SSE headers here
-                // ResponseStream doesn't have setContentType or addHeader methods directly
-                // We need to set these before creating the stream
-                auto response = drogon::HttpResponse::newHttpResponse();
-                response->setContentTypeString("text/event-stream");
-                response->addHeader("Cache-Control", "no-cache");
-                response->addHeader("Connection", "keep-alive");
-                response->addHeader("Access-Control-Allow-Origin", "*");
-
-                // Check if we already have progress information
-                {
-                    std::lock_guard<std::mutex> lock(progressMutex_);
-                    auto it = uploadProgress_.find(upload_id);
-                    if (it != uploadProgress_.end()) {
-                        // Send the current progress immediately
-                        sendProgressEvent(stream, upload_id);
-                    }
+        // Create a proper SSE response with correct headers
+        auto resp = drogon::HttpResponse::newAsyncStreamResponse([this, upload_id](drogon::ResponseStreamPtr stream) {
+            // Check if we already have progress information
+            {
+                std::lock_guard<std::mutex> lock(progressMutex_);
+                auto it = uploadProgress_.find(upload_id);
+                if (it != uploadProgress_.end()) {
+                    // Send the current progress immediately
+                    sendProgressEvent(stream, upload_id);
                 }
-                
-                // Store stream for later updates - need to use std::move since it's a unique_ptr
-                {
-                    std::lock_guard<std::mutex> lock(streamsMutex_);
-                    activeStreams_[upload_id] = std::move(stream);
-                }
-            });
+            }
+            
+            // Store stream for later updates - need to use std::move since it's a unique_ptr
+            {
+                std::lock_guard<std::mutex> lock(streamsMutex_);
+                activeStreams_[upload_id] = std::move(stream);
+            }
+        });
+        
+        // Set SSE headers on the actual response
+        resp->setContentTypeString("text/event-stream");
+        resp->addHeader("Cache-Control", "no-cache");
+        resp->addHeader("Connection", "keep-alive");
+        resp->addHeader("Access-Control-Allow-Origin", "*");
         
         callback(resp);
     }

@@ -81,6 +81,36 @@ int main() {
             .setThreadNum(DEFAULT_THREAD_NUM)
             .setUploadPath(UPLOAD_PATH)
             .setClientMaxBodySize(1024 * 1024 * 1024) // 1GB in bytes
+            .registerPreRoutingAdvice(
+                [](const drogon::HttpRequestPtr &req,
+                   drogon::AdviceCallback &&callback,
+                   drogon::AdviceChainCallback &&chain) {
+                    // Add CORS headers to all responses
+                    if (req->method() == drogon::HttpMethod::Options) {
+                        // Handle preflight requests
+                        auto resp = drogon::HttpResponse::newHttpResponse();
+                        resp->setStatusCode(drogon::HttpStatusCode::k204NoContent);
+                        resp->addHeader("Access-Control-Allow-Origin", "*");
+                        resp->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+                        resp->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+                        resp->addHeader("Access-Control-Max-Age", "86400"); // 24 hours
+                        callback(resp);
+                        return;
+                    }
+                    
+                    // For non-OPTIONS requests, continue processing but add a filter
+                    // to add CORS headers to the final response
+                    chain();
+                }
+            )
+            .registerPostHandlingAdvice(
+                [](const drogon::HttpRequestPtr &req, const drogon::HttpResponsePtr &resp) {
+                    // Add CORS headers to all normal responses
+                    resp->addHeader("Access-Control-Allow-Origin", "*");
+                    resp->addHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+                    resp->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+                }
+            )
             .run();
         
         return 0;
