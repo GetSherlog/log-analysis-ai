@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useRouter } from 'next/navigation';
 import Navigation from '../../components/Navigation';
+import UploadProgressBar from '../../components/UploadProgressBar';
 import { FaUpload, FaSpinner } from 'react-icons/fa';
 import { toast } from 'react-toastify';
-import { uploadFile } from '../../lib/api';
+import { uploadFile, subscribeToUploadProgress, UploadProgressEvent } from '../../lib/api';
 
 export default function UploadPage() {
   const router = useRouter();
@@ -15,11 +16,59 @@ export default function UploadPage() {
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [parserId, setParserId] = useState('drain');
   const [uploadedFilePath, setUploadedFilePath] = useState('');
+  const [uploadId, setUploadId] = useState<string | null>(null);
+  const [progress, setProgress] = useState<UploadProgressEvent | null>(null);
+
+  // Cleanup function for the SSE connection
+  const [closeEventSource, setCloseEventSource] = useState<(() => void) | null>(null);
+
+  // Create a subscription to upload progress events
+  useEffect(() => {
+    if (uploadId) {
+      const close = subscribeToUploadProgress(
+        uploadId,
+        (progressData) => {
+          setProgress(progressData);
+          
+          // If upload is complete, set success state and prepare for redirect
+          if (progressData.status === 'complete') {
+            setUploading(false);
+            setUploadSuccess(true);
+            toast.success('File uploaded successfully!');
+            
+            // Automatically redirect to analysis page after success
+            setTimeout(() => {
+              router.push('/analysis');
+            }, 1500);
+          }
+          
+          // If there's an error, show error toast
+          if (progressData.status === 'error') {
+            setUploading(false);
+            toast.error(progressData.message || 'Upload failed');
+          }
+        },
+        (error) => {
+          console.error('SSE Error:', error);
+          toast.error('Connection to server lost. Please try again.');
+          setUploading(false);
+        }
+      );
+      
+      setCloseEventSource(() => close);
+      
+      // Cleanup subscription when component unmounts or uploadId changes
+      return () => {
+        close();
+      };
+    }
+  }, [uploadId, router]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
       setFile(acceptedFiles[0]);
       setUploadSuccess(false);
+      setProgress(null);
     }
   }, []);
 
@@ -40,6 +89,7 @@ export default function UploadPage() {
     }
 
     setUploading(true);
+    setProgress(null);
     
     try {
       // Use the API client to upload the file
@@ -48,9 +98,8 @@ export default function UploadPage() {
       // Store the file path for later use
       setUploadedFilePath(data.path);
       
-      // Set success state
-      setUploadSuccess(true);
-      toast.success('File uploaded successfully!');
+      // Store upload ID for SSE subscription
+      setUploadId(data.upload_id);
       
       // Store upload information in sessionStorage for use in the analysis page
       sessionStorage.setItem('uploadedFile', JSON.stringify({
@@ -61,18 +110,21 @@ export default function UploadPage() {
         parserId: parserId
       }));
       
-      // Automatically redirect to analysis page after success
-      setTimeout(() => {
-        router.push('/analysis');
-      }, 1500);
-      
     } catch (error) {
       console.error('Upload error:', error);
       toast.error(error instanceof Error ? error.message : 'Failed to upload file. Please try again.');
-    } finally {
       setUploading(false);
     }
   };
+
+  // Clean up event source when navigating away
+  useEffect(() => {
+    return () => {
+      if (closeEventSource) {
+        closeEventSource();
+      }
+    };
+  }, [closeEventSource]);
 
   return (
     <main className="min-h-screen">
@@ -99,6 +151,7 @@ export default function UploadPage() {
                 value={parserId}
                 onChange={(e) => setParserId(e.target.value)}
                 className="input"
+                disabled={uploading}
               >
                 <option value="drain">DRAIN Parser</option>
                 <option value="csv">CSV Parser</option>
@@ -107,55 +160,77 @@ export default function UploadPage() {
               </select>
             </div>
             
-            <div 
-              {...getRootProps()} 
-              className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
-                isDragActive ? 'border-primary-500 bg-primary-50' : 'border-gray-300 hover:border-primary-400'
-              }`}
-            >
-              <input {...getInputProps()} />
-              
-              <div className="flex flex-col items-center justify-center space-y-4">
-                <FaUpload className="text-4xl text-gray-400" />
+            {!uploading && !uploadSuccess && (
+              <div 
+                {...getRootProps()} 
+                className={`border-2 border-dashed rounded-lg p-10 text-center cursor-pointer transition-colors ${
+                  isDragActive ? 'border-primary-500 bg-primary-50' : 'border-gray-300 hover:border-primary-400'
+                }`}
+              >
+                <input {...getInputProps()} />
                 
-                {isDragActive ? (
-                  <p className="text-lg font-medium text-primary-500">Drop the files here...</p>
-                ) : (
-                  <p className="text-lg font-medium text-gray-500">
-                    Drag & drop log files here, or click to select files
+                <div className="flex flex-col items-center justify-center space-y-4">
+                  <FaUpload className="text-4xl text-gray-400" />
+                  
+                  {isDragActive ? (
+                    <p className="text-lg font-medium text-primary-500">Drop the files here...</p>
+                  ) : (
+                    <p className="text-lg font-medium text-gray-500">
+                      Drag & drop log files here, or click to select files
+                    </p>
+                  )}
+                  
+                  <p className="text-sm text-gray-400">
+                    Supports .log, .txt, .csv, and .json files
                   </p>
-                )}
-                
-                <p className="text-sm text-gray-400">
-                  Supports .log, .txt, .csv, and .json files
-                </p>
+                </div>
               </div>
-            </div>
+            )}
             
-            {file && (
+            {file && !uploading && !uploadSuccess && (
               <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                 <p className="font-medium">Selected file:</p>
                 <p className="text-sm text-gray-600">{file.name} ({(file.size / 1024).toFixed(2)} KB)</p>
               </div>
             )}
             
+            {progress && (
+              <UploadProgressBar 
+                progress={progress.progress}
+                status={progress.status}
+                message={progress.message}
+              />
+            )}
+            
             <div className="mt-6 flex justify-end">
-              <button
-                onClick={handleUpload}
-                disabled={!file || uploading}
-                className={`btn-primary flex items-center ${(!file || uploading) ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {uploading ? (
-                  <>
-                    <FaSpinner className="animate-spin mr-2" />
-                    Uploading...
-                  </>
-                ) : uploadSuccess ? (
-                  'Continue to Analysis'
-                ) : (
-                  'Upload File'
-                )}
-              </button>
+              {!uploading && !uploadSuccess && (
+                <button
+                  onClick={handleUpload}
+                  disabled={!file || uploading}
+                  className={`btn-primary flex items-center ${(!file || uploading) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  Upload File
+                </button>
+              )}
+              
+              {uploading && !progress && (
+                <button
+                  disabled
+                  className="btn-primary flex items-center opacity-50 cursor-not-allowed"
+                >
+                  <FaSpinner className="animate-spin mr-2" />
+                  Initializing...
+                </button>
+              )}
+              
+              {uploadSuccess && (
+                <button
+                  onClick={() => router.push('/analysis')}
+                  className="btn-primary flex items-center"
+                >
+                  Continue to Analysis
+                </button>
+              )}
             </div>
           </div>
         </div>
