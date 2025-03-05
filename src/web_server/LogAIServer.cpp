@@ -79,7 +79,6 @@ int main() {
             .setLogLevel(trantor::Logger::kInfo)
             .addListener("0.0.0.0", DEFAULT_PORT)
             .setThreadNum(DEFAULT_THREAD_NUM)
-            .setDocumentRoot("./src/web_server/web")
             .setUploadPath(UPLOAD_PATH)
             .setClientMaxBodySize(1024 * 1024 * 1024) // 1GB in bytes
             .run();
