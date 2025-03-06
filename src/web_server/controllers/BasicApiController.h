@@ -142,8 +142,11 @@ public:
         
         // Initialize progress tracking
         {
+            spdlog::info("Attempting to acquire progressMutex_ lock for initializing upload ID: {}", upload_id);
             std::lock_guard<std::mutex> lock(progressMutex_);
+            spdlog::info("Lock acquired for progressMutex_, initializing progress for upload ID: {}", upload_id);
             uploadProgress_[upload_id] = {0, 0, 0, "initializing", "Upload initialized"};
+            spdlog::info("Progress map size after adding upload ID {}: {}", upload_id, uploadProgress_.size());
         }
         spdlog::info("Upload progress initialized for ID: {}", upload_id);
         
@@ -269,48 +272,77 @@ public:
 
     // Add a method to keep streams active for completed uploads
     void initStreamCleanupTimer() {
+        spdlog::info("Initializing stream cleanup timer");
         // Run a timer every 2 minutes to clean up completed upload streams that have been open too long
         auto timerCallback = [this]() {
-            std::lock_guard<std::mutex> progressLock(progressMutex_);
-            std::lock_guard<std::mutex> streamLock(streamsMutex_);
+            spdlog::info("Stream cleanup timer triggered");
             
-            // Current time
-            auto now = std::chrono::system_clock::now();
-            auto nowMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now.time_since_epoch()).count();
+            try {
+                spdlog::info("Attempting to acquire both mutex locks for cleanup");
+                std::lock_guard<std::mutex> progressLock(progressMutex_);
+                std::lock_guard<std::mutex> streamLock(streamsMutex_);
+                spdlog::info("Locks acquired for cleanup, checking {} upload progress entries and {} completion timestamps", 
+                            uploadProgress_.size(), completionTimestamps_.size());
                 
-            // Check all upload progresses that are complete
-            for (const auto& [uploadId, progress] : uploadProgress_) {
-                if (progress.status == "complete" || progress.status == "error") {
-                    // Check if we have a completion timestamp for this upload
-                    if (completionTimestamps_.find(uploadId) == completionTimestamps_.end()) {
-                        // First time seeing this completed upload, save the timestamp
-                        completionTimestamps_[uploadId] = nowMillis;
-                    } else {
-                        // Check if this completed upload has been open for more than 5 minutes (300000 ms)
-                        auto timestampMillis = completionTimestamps_[uploadId];
-                        if ((nowMillis - timestampMillis) > 300000) {
-                            // Close stream if it's been open too long
-                            spdlog::info("Cleaning up long-running completed upload stream for ID: {}", uploadId);
-                            auto streamIter = activeStreams_.find(uploadId);
-                            if (streamIter != activeStreams_.end()) {
-                                try {
-                                    std::string finalMessage = "event: close\ndata: {\"message\":\"Stream closed after timeout\"}\n\n";
-                                    streamIter->second->send(finalMessage);
-                                    activeStreams_.erase(streamIter);
-                                } catch (const std::exception& e) {
-                                    spdlog::error("Error closing stale stream: {}", e.what());
+                // Current time
+                auto now = std::chrono::system_clock::now();
+                auto nowMillis = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now.time_since_epoch()).count();
+                    
+                // Check all upload progresses that are complete
+                for (const auto& [uploadId, progress] : uploadProgress_) {
+                    spdlog::info("Checking upload ID: {} with status: {}", uploadId, progress.status);
+                    
+                    if (progress.status == "complete" || progress.status == "error") {
+                        // Check if we have a completion timestamp for this upload
+                        if (completionTimestamps_.find(uploadId) == completionTimestamps_.end()) {
+                            // First time seeing this completed upload, save the timestamp
+                            spdlog::info("First time seeing completed upload ID: {}, saving timestamp", uploadId);
+                            completionTimestamps_[uploadId] = nowMillis;
+                        } else {
+                            // Check if this completed upload has been open for more than 5 minutes (300000 ms)
+                            auto timestampMillis = completionTimestamps_[uploadId];
+                            auto elapsedMs = nowMillis - timestampMillis;
+                            spdlog::info("Upload ID: {} has been completed for {} ms", uploadId, elapsedMs);
+                            
+                            if (elapsedMs > 300000) {
+                                // Close stream if it's been open too long
+                                spdlog::info("Cleaning up long-running completed upload stream for ID: {}", uploadId);
+                                auto streamIter = activeStreams_.find(uploadId);
+                                if (streamIter != activeStreams_.end()) {
+                                    try {
+                                        spdlog::info("Sending final message to stream for upload ID: {}", uploadId);
+                                        std::string finalMessage = "event: close\ndata: {\"message\":\"Stream closed after timeout\"}\n\n";
+                                        streamIter->second->send(finalMessage);
+                                        activeStreams_.erase(streamIter);
+                                        spdlog::info("Stream removed for upload ID: {}", uploadId);
+                                    } catch (const std::exception& e) {
+                                        spdlog::error("Error closing stale stream for upload ID: {}: {}", uploadId, e.what());
+                                    }
+                                } else {
+                                    spdlog::info("No active stream found for upload ID: {}", uploadId);
                                 }
+                                
+                                // Also remove the timestamp entry
+                                spdlog::info("Removing timestamp entry for upload ID: {}", uploadId);
+                                completionTimestamps_.erase(uploadId);
+                                
+                                // NOTE: We are NOT removing the upload progress entry itself
+                                // This ensures status check requests can still get the final status
+                                spdlog::info("Upload progress entry for ID: {} is kept for status checks", uploadId);
                             }
-                            // Also remove the timestamp entry
-                            completionTimestamps_.erase(uploadId);
                         }
                     }
                 }
+                spdlog::info("Stream cleanup completed, remaining entries: progress={}, timestamps={}, streams={}", 
+                            uploadProgress_.size(), completionTimestamps_.size(), activeStreams_.size());
+            } catch (const std::exception& e) {
+                spdlog::error("Exception in stream cleanup timer: {}", e.what());
             }
         };
         
         // Schedule the timer
+        spdlog::info("Scheduling stream cleanup timer to run every 2 minutes");
         drogon::app().getLoop()->runEvery(2.0 * 60, timerCallback);
     }
 
@@ -325,31 +357,62 @@ public:
         auto resp = drogon::HttpResponse::newHttpResponse();
         resp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
         
-        // Check if this upload ID exists
-        {
-            std::lock_guard<std::mutex> lock(progressMutex_);
-            auto it = uploadProgress_.find(upload_id);
-            if (it != uploadProgress_.end()) {
-                // Return the current status
-                const auto& progress = it->second;
-                std::string responseJson = 
-                    "{\"progress\":" + std::to_string(progress.progressPercent) + 
-                    ",\"status\":\"" + progress.status + 
-                    "\",\"message\":\"" + progress.message + 
-                    "\",\"totalBytes\":" + std::to_string(progress.totalBytes) + 
-                    ",\"uploadedBytes\":" + std::to_string(progress.uploadedBytes) + 
-                    "}";
+        try {
+            // Check if this upload ID exists
+            {
+                spdlog::info("Acquiring progressMutex_ lock for upload ID: {}", upload_id);
+                std::lock_guard<std::mutex> lock(progressMutex_);
+                spdlog::info("Lock acquired for progressMutex_, checking if upload ID: {} exists", upload_id);
                 
-                resp->setBody(responseJson);
-                resp->setStatusCode(drogon::k200OK);
-            } else {
-                // Upload ID not found
-                resp->setBody("{\"error\":true,\"message\":\"Upload ID not found\"}");
-                resp->setStatusCode(drogon::k404NotFound);
+                auto it = uploadProgress_.find(upload_id);
+                if (it != uploadProgress_.end()) {
+                    // Return the current status
+                    spdlog::info("Upload ID: {} found in progress map with status: {}", upload_id, it->second.status);
+                    const auto& progress = it->second;
+                    
+                    try {
+                        std::string responseJson = 
+                            "{\"progress\":" + std::to_string(progress.progressPercent) + 
+                            ",\"status\":\"" + progress.status + 
+                            "\",\"message\":\"" + progress.message + 
+                            "\",\"totalBytes\":" + std::to_string(progress.totalBytes) + 
+                            "\",\"uploadedBytes\":" + std::to_string(progress.uploadedBytes) + 
+                            "}";
+                        
+                        spdlog::info("Response JSON constructed for upload ID: {}: {}", upload_id, responseJson);
+                        resp->setBody(responseJson);
+                        resp->setStatusCode(drogon::k200OK);
+                    } catch (const std::exception& e) {
+                        spdlog::error("Exception while constructing JSON response for upload ID: {}: {}", upload_id, e.what());
+                        resp->setBody("{\"error\":true,\"message\":\"Internal server error while processing upload status\"}");
+                        resp->setStatusCode(drogon::k500InternalServerError);
+                    }
+                } else {
+                    // Upload ID not found
+                    spdlog::warn("Upload ID: {} not found in progress map", upload_id);
+                    resp->setBody("{\"error\":true,\"message\":\"Upload ID not found\"}");
+                    resp->setStatusCode(drogon::k404NotFound);
+                }
+                spdlog::info("Releasing progressMutex_ lock for upload ID: {}", upload_id);
+            }
+            
+            spdlog::info("About to execute callback for upload ID: {}", upload_id);
+            callback(resp);
+            spdlog::info("Callback executed for upload ID: {}", upload_id);
+        } catch (const std::exception& e) {
+            spdlog::error("Uncaught exception in uploadStatus for upload ID: {}: {}", upload_id, e.what());
+            auto errorResp = drogon::HttpResponse::newHttpResponse();
+            errorResp->setContentTypeCode(drogon::CT_APPLICATION_JSON);
+            errorResp->setBody("{\"error\":true,\"message\":\"Server error processing status request\"}");
+            errorResp->setStatusCode(drogon::k500InternalServerError);
+            
+            try {
+                callback(errorResp);
+                spdlog::info("Error response callback executed for upload ID: {}", upload_id);
+            } catch (const std::exception& innerEx) {
+                spdlog::error("Failed to execute error callback for upload ID: {}: {}", upload_id, innerEx.what());
             }
         }
-        
-        callback(resp);
     }
 
 private:
@@ -382,10 +445,39 @@ private:
                         size_t uploadedBytes, 
                         const std::string& status,
                         const std::string& message) {
-        std::lock_guard<std::mutex> lock(progressMutex_);
-        int percent = totalBytes > 0 ? (int)((uploadedBytes * 100) / totalBytes) : 0;
-        uploadProgress_[upload_id] = {totalBytes, uploadedBytes, percent, status, message};
-        spdlog::info("Progress update for {}: {}% - Status: {} - Message: {}", upload_id, percent, status, message);
+        spdlog::info("Updating progress for upload ID: {} - Status: {}, Message: {}, Uploaded: {}/{} bytes", 
+                    upload_id, status, message, uploadedBytes, totalBytes);
+        
+        // Update progress in the map
+        {
+            spdlog::info("Attempting to acquire progressMutex_ lock for updating upload ID: {}", upload_id);
+            std::lock_guard<std::mutex> lock(progressMutex_);
+            spdlog::info("Lock acquired for progressMutex_, updating progress for upload ID: {}", upload_id);
+            
+            auto it = uploadProgress_.find(upload_id);
+            if (it == uploadProgress_.end()) {
+                spdlog::warn("Update called for non-existent upload ID: {}, will create new entry", upload_id);
+            }
+            
+            // Calculate progress percentage
+            int progressPercent = 0;
+            if (totalBytes > 0 && uploadedBytes <= totalBytes) {
+                progressPercent = static_cast<int>((static_cast<double>(uploadedBytes) / totalBytes) * 100);
+            }
+            
+            uploadProgress_[upload_id] = {totalBytes, uploadedBytes, progressPercent, status, message};
+            spdlog::info("Progress updated for upload ID: {} - Progress: {}%", upload_id, progressPercent);
+            
+            // If the status is "complete" or "error", store the completion timestamp
+            if (status == "complete" || status == "error") {
+                auto now = std::chrono::system_clock::now();
+                auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+                    now.time_since_epoch()).count();
+                
+                spdlog::info("Upload ID: {} marked as {} at timestamp: {}", upload_id, status, timestamp);
+                completionTimestamps_[upload_id] = timestamp;
+            }
+        }
         
         // Check if we have an active stream for this upload
         {
