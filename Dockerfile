@@ -47,6 +47,56 @@ RUN git clone https://github.com/abseil/abseil-cpp.git \
     && make install \
     && ldconfig
 
+# Install FastFloat (needed for Folly)
+WORKDIR /tmp/fastfloat
+RUN git clone https://github.com/fastfloat/fast_float.git \
+    && cd fast_float \
+    && mkdir build && cd build \
+    && cmake .. \
+    && make install
+
+# Install gflags from source (ensuring shared libraries are built)
+WORKDIR /tmp/gflags
+RUN git clone https://github.com/gflags/gflags.git \
+    && cd gflags \
+    && mkdir build && cd build \
+    && cmake -DBUILD_SHARED_LIBS=ON \
+            -DBUILD_STATIC_LIBS=ON \
+            -DBUILD_gflags_LIB=ON \
+            -DINSTALL_HEADERS=ON \
+            -DINSTALL_SHARED_LIBS=ON \
+            -DINSTALL_STATIC_LIBS=ON .. \
+    && make -j$(nproc) \
+    && make install \
+    && ldconfig \
+    # Create symlink for libgflags_shared if needed
+    && if [ -f /usr/local/lib/libgflags.so ] && [ ! -f /usr/local/lib/libgflags_shared.so ]; then \
+           ln -s /usr/local/lib/libgflags.so /usr/local/lib/libgflags_shared.so; \
+       fi
+
+# Install Folly
+WORKDIR /tmp/folly
+RUN apt-get update && apt-get install -y \
+    autoconf automake binutils-dev cmake libdwarf-dev \
+    libevent-dev libsodium-dev libtool ninja-build \
+    libgoogle-glog-dev libboost-all-dev \
+    libdouble-conversion-dev liblz4-dev \
+    liblzma-dev libzstd-dev libbz2-dev libsnappy-dev \
+    python3-pip python3-dev zlib1g-dev zstd pkg-config \
+    libfmt-dev libunwind-dev libicu-dev \
+    # Additional dependencies commonly needed
+    libfmt-dev libunwind-dev libicu-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && git clone https://github.com/facebook/folly && cd folly/build \
+    && cmake -DBUILD_SHARED_LIBS=ON \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DBUILD_EXAMPLES=OFF \
+            -DBUILD_CTL=OFF \
+            -DBUILD_TESTING=OFF .. \
+    && make all \
+    && make install \
+    && ldconfig
+
 # Install Drogon
 WORKDIR /tmp/drogon
 RUN git clone https://github.com/drogonframework/drogon \
@@ -90,6 +140,8 @@ RUN apt-get update && apt-get install -y \
     libmariadb-dev libboost-all-dev libjemalloc-dev \
     libgoogle-glog-dev libgflags-dev liblz4-dev \
     libleveldb-dev libtbb-dev curl libhiredis-dev libspdlog-dev libfmt-dev \
+    libdouble-conversion-dev liblzma-dev libzstd-dev libbz2-dev libsnappy-dev \
+    libfmt-dev libspdlog-dev libsodium-dev libsodium23 libunwind8 libunwind-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy all the libraries from the build stage
@@ -100,6 +152,10 @@ COPY --from=build /usr/local/include /usr/local/include
 RUN mkdir -p /usr/lib/drogon && \
     ln -sf /usr/local/lib/libdrogon.so /usr/lib/libdrogon.so && \
     ln -sf /usr/local/lib/libdrogon.so /usr/lib/drogon/libdrogon.so && \
+    # Ensure libsodium is properly linked
+    ln -sf /usr/lib/aarch64-linux-gnu/libsodium.so.23 /usr/lib/libsodium.so.23 || true && \
+    # Ensure libunwind is properly linked
+    ln -sf /usr/lib/aarch64-linux-gnu/libunwind.so.8 /usr/lib/libunwind.so.8 || true && \
     ldconfig
 
 # Create necessary directories

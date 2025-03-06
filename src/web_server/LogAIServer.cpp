@@ -20,7 +20,7 @@ namespace fs = std::filesystem;
 
 // Server config constants
 const int DEFAULT_PORT = 8080;
-const int DEFAULT_THREAD_NUM = 8;
+const int DEFAULT_THREAD_NUM = 16;
 const std::string UPLOAD_PATH = "./uploads";
 const std::string LOG_PATH = "./logs";
 
