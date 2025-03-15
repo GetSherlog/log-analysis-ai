@@ -1,6 +1,7 @@
 #include "std_includes.h"
 #include "csv_parser.h"
 #include "simd_scanner.h"
+#include <iomanip>
 
 namespace logai {
 
@@ -8,9 +9,23 @@ CsvParser::CsvParser(const DataLoaderConfig& config) : config_(config) {}
 
 // Helper function to parse timestamps based on format
 std::optional<std::chrono::system_clock::time_point> parse_timestamp(std::string_view timestamp, const std::string& format) {
-    // Simple implementation - in a real app would parse based on format
-    // This is just a placeholder
-    return std::nullopt;
+    std::tm tm = {};
+    std::string timestamp_str(timestamp);
+    std::istringstream ss(timestamp_str);
+    
+    ss >> std::get_time(&tm, format.c_str());
+    
+    if (ss.fail()) {
+        return std::nullopt;
+    }
+    
+    // Convert tm to time_t then to system_clock::time_point
+    std::time_t time = std::mktime(&tm);
+    if (time == -1) {
+        return std::nullopt;
+    }
+    
+    return std::chrono::system_clock::from_time_t(time);
 }
 
 LogRecordObject CsvParser::parse_line(std::string_view line) {
