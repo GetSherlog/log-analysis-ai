@@ -9,6 +9,15 @@ import { FaUpload, FaSpinner } from 'react-icons/fa';
 import { toast } from 'react-toastify';
 import { uploadFile, subscribeToUploadProgress, UploadProgressEvent } from '../../lib/api';
 
+// Interface for uploaded file data
+interface UploadedFileData {
+  path: string;
+  filename: string;
+  original_name: string;
+  size: number;
+  parser_id: string;
+}
+
 export default function UploadPage() {
   const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
@@ -105,9 +114,9 @@ export default function UploadPage() {
       sessionStorage.setItem('uploadedFile', JSON.stringify({
         path: data.path,
         filename: data.filename,
-        originalName: data.originalName,
+        original_name: data.original_name,
         size: data.size,
-        parserId: parserId
+        parser_id: parserId
       }));
       
     } catch (error) {

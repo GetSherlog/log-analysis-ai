@@ -12,12 +12,10 @@ namespace fs = std::filesystem;
 namespace logai {
 namespace web {
 
-LogParserController::LogParserController() 
-    : drainParser_(std::make_unique<DrainParser>()) {
+LogParserController::LogParserController() {
     // Initialize DrainParser with default settings
-    // These can be made configurable as needed
-    drainParser_->setDepth(4);
-    drainParser_->setSimilarityThreshold(0.5);
+    DataLoaderConfig config;
+    drainParser_ = std::make_unique<DrainParser>(config, 4, 0.5, 100);
 }
 
 void LogParserController::parseDrain(
@@ -50,15 +48,6 @@ void LogParserController::parseDrain(
         return;
     }
     
-    // Optional configuration parameters
-    if (requestJson.contains("depth") && requestJson["depth"].is_number_integer()) {
-        drainParser_->setDepth(requestJson["depth"].get<int>());
-    }
-    
-    if (requestJson.contains("similarityThreshold") && requestJson["similarityThreshold"].is_number()) {
-        drainParser_->setSimilarityThreshold(requestJson["similarityThreshold"].get<double>());
-    }
-    
     // Parse the log lines
     std::vector<LogRecordObject> parsedLogs;
     for (const auto& line : logLines) {
@@ -72,7 +61,7 @@ void LogParserController::parseDrain(
     for (const auto& log : parsedLogs) {
         json logJson;
         logJson["template"] = log.template_str;
-        logJson["parameters"] = log.parameters;
+        logJson["attributes"] = log.attributes;
         response["parsedLogs"].push_back(logJson);
     }
     
@@ -106,79 +95,45 @@ void LogParserController::parseFile(
         return;
     }
     
-    // Determine file type and create appropriate parser
-    std::unique_ptr<LogParser> parser;
-    std::string fileExt = fs::path(filePath).extension().string();
-    
     // Create data loader config
     DataLoaderConfig config;
-    config.filePath = filePath;
+    config.file_path = filePath;
     
     if (requestJson.contains("maxLines") && requestJson["maxLines"].is_number_integer()) {
-        config.maxLines = requestJson["maxLines"].get<int>();
+        config.max_lines = requestJson["maxLines"].get<int>();
     }
     
-    if (fileExt == ".json") {
-        parser = std::make_unique<JsonParser>();
-    } else if (fileExt == ".csv") {
-        parser = std::make_unique<CsvParser>();
-        
-        // CSV parser configuration
-        if (requestJson.contains("delimiter") && requestJson["delimiter"].is_string()) {
-            std::string delimiter = requestJson["delimiter"].get<std::string>();
-            static_cast<CsvParser*>(parser.get())->setDelimiter(delimiter[0]);
-        }
-        
-        if (requestJson.contains("hasHeader") && requestJson["hasHeader"].is_boolean()) {
-            bool hasHeader = requestJson["hasHeader"].get<bool>();
-            static_cast<CsvParser*>(parser.get())->setHasHeader(hasHeader);
-        }
-    } else {
-        // Check if Drain parsing is requested
-        if (requestJson.contains("useDrainParser") && requestJson["useDrainParser"].is_boolean() && 
-            requestJson["useDrainParser"].get<bool>()) {
-            
-            // Use DrainParser for this file
-            parser = std::make_unique<DrainParser>(config);
-            
-            // Configure DrainParser if parameters are provided
-            if (requestJson.contains("depth") && requestJson["depth"].is_number_integer()) {
-                static_cast<DrainParser*>(parser.get())->setDepth(requestJson["depth"].get<int>());
-            }
-            
-            if (requestJson.contains("similarityThreshold") && requestJson["similarityThreshold"].is_number()) {
-                static_cast<DrainParser*>(parser.get())->setSimilarityThreshold(
-                    requestJson["similarityThreshold"].get<double>());
-            }
-        } else {
-            // Default to regex parser for other file types
-            parser = std::make_unique<RegexParser>();
-            
-            // Configure regex pattern if provided
-            if (requestJson.contains("pattern") && requestJson["pattern"].is_string()) {
-                std::string pattern = requestJson["pattern"].get<std::string>();
-                static_cast<RegexParser*>(parser.get())->setPattern(pattern);
-            }
-        }
-    }
-    
-    // Create file data loader
+    // Create file data loader and DrainParser for template extraction
     FileDataLoader dataLoader(config);
-    dataLoader.setParser(std::move(parser));
     
     try {
         // Load and parse the file
-        auto logRecords = dataLoader.load();
+        auto logRecords = dataLoader.load_data();
         
         // Prepare response
         json response;
-        response["records"] = json::array();
+        folly::F14FastSet<std::string_view> templates;
+        response["templates"] = json::array();
         
         for (const auto& record : logRecords) {
             json recordJson;
-            recordJson["timestamp"] = record.timestamp;
-            recordJson["message"] = record.message;
-            response["records"].push_back(recordJson);
+            if (record.timestamp) {
+                auto timestamp_value = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    record.timestamp->time_since_epoch()).count();
+                recordJson["timestamp"] = timestamp_value;
+            }
+            recordJson["message"] = record.body;
+            if (record.severity) {
+                recordJson["severity"] = *record.severity;
+            }
+            recordJson["attributes"] = record.attributes;
+            templates.insert(record.template_str);
+        }
+        
+        for (const auto& template : templates) {
+            json templateJson;
+            templateJson["template"] = template;
+            response["templates"].push_back(templateJson);
         }
         
         response["totalRecords"] = logRecords.size();

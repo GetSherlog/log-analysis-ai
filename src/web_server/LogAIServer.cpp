@@ -15,6 +15,7 @@
 // Include controllers
 #include "controllers/AnomalyDetectionController.h"
 #include "controllers/BasicApiController.h"
+#include "controllers/LogParserController.h"
 
 namespace fs = std::filesystem;
 
@@ -111,6 +112,7 @@ int main() {
                     resp->addHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
                 }
             )
+            .registerController(std::make_shared<logai::web::LogParserController>())
             .run();
         
         return 0;

@@ -16,9 +16,9 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 interface UploadedFileData {
   path: string;
   filename: string;
-  originalName: string;
+  original_name: string;
   size: number;
-  parserId: string;
+  parser_id: string;
 }
 
 export default function AnalysisPage() {
@@ -94,31 +94,21 @@ export default function AnalysisPage() {
     try {
       // Call the file parser API
       const result = await parseFile({
-        filePath: fileData.path,
-        maxLines: 1000 // Limit to 1000 lines for the demo
+        file_path: fileData.path,
+        max_lines: 1000 // Limit to 1000 lines for the demo
       });
       
       setParseProgress(70);
       setParsingResults(result);
       
-      // Generate templates from the parsed data
-      // In a real implementation, this would use the DRAIN parser
-      // Here we'll just simulate some templates
-      const mockTemplates = [
-        { id: 1, template: 'User [*] logged in successfully', count: 245 },
-        { id: 2, template: 'Failed login attempt for user [*] from IP [*]', count: 18 },
-        { id: 3, template: 'Database connection failed: [*]', count: 7 },
-        { id: 4, template: 'API request completed in [*] ms', count: 326 },
-        { id: 5, template: 'System shutdown initiated by [*]', count: 3 },
-      ];
-      
-      setTemplates(mockTemplates);
+      // Use templates from the API response
+      setTemplates(result.templates);
       setChartData({
-        labels: mockTemplates.map(t => `Template ${t.id}`),
+        labels: result.templates.map(t => `Template ${t.id}`),
         datasets: [
           {
             label: 'Occurrence Count',
-            data: mockTemplates.map(t => t.count),
+            data: result.templates.map(t => t.count),
             backgroundColor: 'rgba(14, 165, 233, 0.6)',
             borderColor: 'rgb(14, 165, 233)',
             borderWidth: 1,
@@ -144,8 +134,8 @@ export default function AnalysisPage() {
     setFeatureExtractionProgress(10);
     
     try {
-      // Extract messages from parsing results
-      const logLines = parsingResults.records.map(record => record.message);
+      // Use templates for feature extraction
+      const logLines = parsingResults.templates.map(t => t.template);
       
       // Call the feature extraction API
       const result = await extractFeatures({
@@ -305,7 +295,7 @@ export default function AnalysisPage() {
             {uploadedFile && (
               <div className="mb-4 p-4 bg-gray-50 rounded-lg">
                 <p className="font-medium">Processing file:</p>
-                <p className="text-sm text-gray-600">{uploadedFile.originalName} ({(uploadedFile.size / 1024).toFixed(2)} KB)</p>
+                <p className="text-sm text-gray-600">{uploadedFile.original_name} ({(uploadedFile.size / 1024).toFixed(2)} KB)</p>
               </div>
             )}
             

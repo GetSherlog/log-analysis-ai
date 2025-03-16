@@ -8,6 +8,7 @@ set(SERVER_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/LogAIServer.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/controllers/AnomalyDetectionController.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/controllers/BasicApiController.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/controllers/LogParserController.cpp"
 )
 
 # Headers
@@ -15,6 +16,7 @@ set(SERVER_HEADERS
     "${CMAKE_CURRENT_SOURCE_DIR}/controllers/ApiController.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/controllers/AnomalyDetectionController.h"
     "${CMAKE_CURRENT_SOURCE_DIR}/controllers/BasicApiController.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/controllers/LogParserController.h"
 )
 
 # Find required packages
