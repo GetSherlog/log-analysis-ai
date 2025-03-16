@@ -217,3 +217,99 @@ This will build and run the LogBERT test program, which demonstrates:
 - Training a WordPiece tokenizer on log data
 - Tokenizing log entries with multi-threading
 - Performance benchmarks for tokenization 
+
+## Log Search Functionality
+
+### Overview
+The LogAI-CPP library now includes a powerful log search capability that helps you find log templates similar to a given query. This functionality uses cosine similarity between embeddings of your query and stored log templates to find the most relevant matches.
+
+### How it Works
+1. When parsing logs, the system automatically builds a database of templates and their embeddings
+2. Templates are persisted to disk for future use
+3. When you search with a query, the system:
+   - Creates an embedding for your query
+   - Compares it to all stored template embeddings using cosine similarity
+   - Returns the most similar templates along with sample log messages
+
+### API Endpoint
+The search functionality is available through the following REST API endpoint:
+
+```
+POST /api/parser/search
+```
+
+Request payload:
+```json
+{
+  "query": "user login failed",
+  "topK": 10
+}
+```
+
+Response:
+```json
+{
+  "query": "user login failed",
+  "totalResults": 2,
+  "results": [
+    {
+      "templateId": 42,
+      "similarity": 0.89,
+      "template": "User <*> login failed: <*>",
+      "logSamples": [
+        "User john.doe login failed: invalid password",
+        "User admin login failed: account locked"
+      ],
+      "totalLogs": 156
+    },
+    {
+      "templateId": 17,
+      "similarity": 0.75,
+      "template": "Failed login attempt from IP <*>",
+      "logSamples": [
+        "Failed login attempt from IP 192.168.1.105"
+      ],
+      "totalLogs": 24
+    }
+  ]
+}
+```
+
+### Code Usage
+You can also use the search functionality programmatically:
+
+```cpp
+#include "drain_parser.h"
+
+// Initialize the parser
+DataLoaderConfig config;
+DrainParser parser(config);
+
+// Process logs (this builds the template database)
+for (const auto& log : logs) {
+    parser.parse_line(log);
+}
+
+// Search for similar templates
+std::string query = "user login failed";
+int top_k = 10;
+auto results = parser.search_templates(query, top_k);
+
+// Process results
+for (const auto& [template_id, similarity] : results) {
+    std::string templ = parser.get_template_store().get_template(template_id);
+    auto logs = parser.get_logs_for_template(template_id);
+    
+    std::cout << "Template: " << templ << " (similarity: " << similarity << ")" << std::endl;
+    std::cout << "Sample logs:" << std::endl;
+    for (size_t i = 0; i < std::min(logs.size(), size_t(3)); ++i) {
+        std::cout << "  " << logs[i].body << std::endl;
+    }
+}
+
+// Save templates for future use
+parser.save_templates("./templates.json");
+
+// Load templates in a later session
+parser.load_templates("./templates.json");
+``` 

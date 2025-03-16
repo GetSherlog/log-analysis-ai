@@ -2,6 +2,7 @@
 
 #include "log_parser.h"
 #include "data_loader_config.h"
+#include "template_store.h"
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -92,11 +93,54 @@ public:
      * @param threshold The similarity threshold (default: 0.5)
      */
     void setSimilarityThreshold(double threshold);
+    
+    /**
+     * Search for log templates similar to a query
+     * 
+     * @param query The query string to search for
+     * @param top_k The number of results to return (default: 10)
+     * @return A vector of pairs containing template IDs and their similarity scores
+     */
+    std::vector<std::pair<int, float>> search_templates(const std::string& query, int top_k = 10);
+    
+    /**
+     * Get logs for a specific template
+     * 
+     * @param template_id The template ID to get logs for
+     * @return A vector of LogRecordObjects for the specified template
+     */
+    std::vector<LogRecordObject> get_logs_for_template(int template_id);
+    
+    /**
+     * Save the template store to a file
+     * 
+     * @param path The path to save to
+     * @return true if successful, false otherwise
+     */
+    bool save_templates(const std::string& path);
+    
+    /**
+     * Load templates from a file
+     * 
+     * @param path The path to load from
+     * @return true if successful, false otherwise
+     */
+    bool load_templates(const std::string& path);
+    
+    /**
+     * Get the template store
+     * 
+     * @return A reference to the template store
+     */
+    const TemplateStore& get_template_store() const;
 
 private:
     // Use PIMPL idiom to hide implementation details
     std::unique_ptr<DrainParserImpl> impl_;
     const DataLoaderConfig& config_;
+    
+    // Template store for storing and searching templates
+    TemplateStore template_store_;
 };
 
 } // namespace logai 

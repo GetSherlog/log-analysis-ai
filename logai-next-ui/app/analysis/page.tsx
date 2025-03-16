@@ -7,7 +7,7 @@ import { FaChartLine, FaGear, FaRegLightbulb, FaDownload, FaTable } from 'react-
 import { Bar } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ChartData } from 'chart.js';
 import { toast } from 'react-toastify';
-import { parseFile, extractFeatures, detectAnomaliesOcSvm, DrainParserResponse, FileParserResponse, FeatureExtractionResponse, OcSvmAnomalyDetectionResponse } from '../../lib/api';
+import { parseFile, extractFeatures, detectAnomaliesOcSvm, FileParserResponse, FeatureExtractionResponse, OcSvmAnomalyDetectionResponse } from '../../lib/api';
 
 // Register Chart.js components
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);

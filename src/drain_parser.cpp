@@ -104,43 +104,55 @@ public:
     
     LogRecordObject parse(std::string_view line, const DataLoaderConfig& config) {
         LogRecordObject record;
+        record.body = std::string(line);
         
-        // Preprocess the log line if needed
-        std::string_view preprocessed_line = preprocess_log(line);
+        // Preprocess the log line
+        std::string_view content = preprocess_log(line);
         
-        // Tokenize the log message
-        std::vector<std::string> tokens = tokenize(preprocessed_line);
+        // Tokenize the log content
+        std::vector<std::string> tokens = tokenize(content);
         
-        // Intern common strings to reduce memory usage
-        for (auto& token : tokens) {
-            token = std::string(string_pool_.intern(token));
-        }
+        // Match with existing log clusters or create a new one
+        std::shared_ptr<LogCluster> matched_cluster = match_log_message(tokens);
         
-        // Match or create a new log cluster
-        auto cluster = match_log_message(tokens);
+        // Extract and store the template
+        record.template_str = matched_cluster->log_template;
         
-        // Extract parameters from the log message
-        std::unordered_map<std::string, std::string> parameters;
-        extract_parameters(tokens, cluster, parameters);
-        
-        // Fill the log record
-        record.body = std::string(preprocessed_line);
-        record.template_str = cluster->log_template;  // Set the template string
-        record.attributes = std::move(parameters);
-        
-        // Extract timestamp and severity if available
+        // Extract metadata (timestamp, severity, etc.)
         extract_metadata(line, record, config);
         
         return record;
     }
     
-    // Setter methods for configuration
+    // Return the cluster ID for a parsed log
+    int get_cluster_id_for_log(std::string_view line) {
+        // Preprocess the log line
+        std::string_view content = preprocess_log(line);
+        
+        // Tokenize the log content
+        std::vector<std::string> tokens = tokenize(content);
+        
+        // Match with existing log clusters or create a new one
+        std::shared_ptr<LogCluster> matched_cluster = match_log_message(tokens);
+        
+        // Return the cluster ID
+        return matched_cluster->id;
+    }
+    
     void setDepth(int depth) {
         depth_ = depth;
     }
     
     void setSimilarityThreshold(double threshold) {
         similarity_threshold_ = threshold;
+    }
+    
+    // Get all templates
+    std::unordered_map<int, std::string> get_all_templates() {
+        std::lock_guard<std::mutex> lock(parser_mutex_);
+        std::unordered_map<int, std::string> templates;
+        collect_templates(root_, templates);
+        return templates;
     }
     
 private:
@@ -153,59 +165,60 @@ private:
     StringPool string_pool_;  // String pool for memory optimization
     
     std::string_view preprocess_log(std::string_view line) {
-        // Check for empty string_view to avoid issues
-        if (line.empty()) {
-            static const std::string empty;
-            return empty;
-        }
-        
+        // For now, we'll just return the original content
+        // In a real implementation, this would handle timestamp removal, etc.
         try {
-            // Return the string_view directly instead of copying
             return line;
         } catch (const std::exception& e) {
             std::lock_guard<std::mutex> lock(log_mutex);
-            std::cerr << "Error in preprocess_log function: " << e.what() << std::endl;
-            static const std::string empty;
-            return empty;
+            std::cerr << "Error preprocessing log: " << e.what() << std::endl;
+            return "";
         }
     }
     
     std::shared_ptr<LogCluster> match_log_message(const std::vector<std::string>& tokens) {
-        // If the log is empty, return a default cluster
         if (tokens.empty()) {
+            // Create a default cluster for empty logs
             std::lock_guard<std::mutex> lock(parser_mutex_);
-            auto cluster = std::make_shared<LogCluster>(cluster_id_counter_++, std::vector<std::string>());
+            auto cluster = std::make_shared<LogCluster>(cluster_id_counter_++, std::vector<std::string>{"<EMPTY>"});
             return cluster;
         }
         
         // Find the leaf node for this log message
         std::shared_ptr<Node> current_node = root_;
         
-        // Traverse the tree based on token positions
-        for (int i = 0; i < std::min(depth_, static_cast<int>(tokens.size())); ++i) {
-            // For the last level, use the length of the log message
-            std::string key;
-            if (i == depth_ - 1) {
-                key = std::to_string(tokens.size());
+        // Descend the tree
+        for (int depth = 0; depth < depth_; ++depth) {
+            // Stop if we've reached a leaf
+            if (current_node->children.empty()) {
+                break;
+            }
+            
+            // Get the token at the current depth or use the last token if we're out of bounds
+            std::string token;
+            if (depth < static_cast<int>(tokens.size())) {
+                token = tokens[depth];
             } else {
-                // For other levels, use the token at the position
-                key = tokens[i];
-                // If the token is a number, replace with a special token
-                if (is_number(key)) {
-                    key = "<NUM>";
+                token = tokens.back();
+            }
+            
+            // Follow the path in the tree
+            auto child_it = current_node->children.find(token);
+            if (child_it != current_node->children.end()) {
+                current_node = child_it->second;
+            } else {
+                // No exact match at this depth, check for wildcard
+                child_it = current_node->children.find(WILDCARD);
+                if (child_it != current_node->children.end()) {
+                    current_node = child_it->second;
+                } else {
+                    // No matching path, we've reached a leaf
+                    break;
                 }
             }
-            
-            // If the key doesn't exist, create a new node
-            std::lock_guard<std::mutex> lock(parser_mutex_);
-            if (current_node->children.find(key) == current_node->children.end()) {
-                current_node->children[key] = std::make_shared<Node>();
-            }
-            
-            current_node = current_node->children[key];
         }
         
-        // Find the most similar cluster in the leaf node
+        // Find the best cluster match at this node
         std::shared_ptr<LogCluster> matched_cluster = nullptr;
         double max_similarity = -1.0;
         
@@ -218,137 +231,184 @@ private:
                     matched_cluster = cluster;
                 }
             }
+        }
+        
+        // If no match found, create a new cluster
+        if (!matched_cluster) {
+            std::lock_guard<std::mutex> lock(parser_mutex_);
+            matched_cluster = std::make_shared<LogCluster>(cluster_id_counter_++, tokens);
+            update_template(matched_cluster, tokens); // Initialize template
+            current_node->clusters.push_back(matched_cluster);
             
-            // If no cluster matches, create a new one
-            if (matched_cluster == nullptr) {
-                matched_cluster = std::make_shared<LogCluster>(cluster_id_counter_++, tokens);
-                current_node->clusters.push_back(matched_cluster);
-                
-                // If we have too many clusters, split the node
-                if (current_node->clusters.size() > max_children_) {
-                    split_node(current_node);
-                }
-            } else {
-                // Update the template of the matched cluster
-                update_template(matched_cluster, tokens);
+            // If we have too many clusters, split the node
+            if (static_cast<int>(current_node->clusters.size()) > max_children_) {
+                split_node(current_node);
             }
+        } else {
+            // Update the existing template if necessary
+            update_template(matched_cluster, tokens);
         }
         
         return matched_cluster;
     }
     
     double calculate_similarity(const std::vector<std::string>& tokens1, const std::vector<std::string>& tokens2) {
-        // If the lengths are different, they can't be very similar
-        if (tokens1.size() != tokens2.size()) {
+        if (tokens1.empty() || tokens2.empty()) {
             return 0.0;
         }
         
-        // Count the number of matching tokens
-        int matching_tokens = 0;
-        for (size_t i = 0; i < tokens1.size(); ++i) {
-            if (tokens1[i] == tokens2[i] || tokens2[i] == WILDCARD) {
-                matching_tokens++;
+        const size_t len1 = tokens1.size();
+        const size_t len2 = tokens2.size();
+        
+        // Use a simple token-by-token comparison
+        size_t matched = 0;
+        for (size_t i = 0; i < std::min(len1, len2); ++i) {
+            if (tokens1[i] == tokens2[i] || tokens1[i] == WILDCARD || tokens2[i] == WILDCARD) {
+                matched++;
             }
         }
         
-        // Calculate similarity as the ratio of matching tokens
-        return static_cast<double>(matching_tokens) / tokens1.size();
+        // Use max length for denominator to avoid rewarding shorter log messages
+        return static_cast<double>(matched) / std::max(len1, len2);
     }
     
     void update_template(std::shared_ptr<LogCluster> cluster, const std::vector<std::string>& tokens) {
-        // Update the template by replacing non-matching tokens with wildcards
-        bool template_changed = false;
+        if (tokens.empty()) {
+            return;
+        }
         
-        for (size_t i = 0; i < tokens.size(); ++i) {
-            if (i < cluster->tokens.size()) {
-                // If the tokens don't match and it's not already a wildcard, replace with wildcard
-                if (cluster->tokens[i] != tokens[i] && cluster->tokens[i] != WILDCARD) {
-                    // Mark this position as a parameter
-                    cluster->parameter_indices.insert(i);
-                    
-                    // Replace with wildcard
+        std::lock_guard<std::mutex> lock(parser_mutex_);
+        
+        // First time seeing this cluster? Initialize with the tokens
+        if (cluster->tokens.empty()) {
+            cluster->tokens = tokens;
+            extract_parameters(tokens, cluster);
+            cluster->update_template();
+            return;
+        }
+        
+        // Update template tokens
+        const size_t old_size = cluster->tokens.size();
+        const size_t new_size = tokens.size();
+        const size_t min_size = std::min(old_size, new_size);
+        
+        // Check for token mismatches and convert to wildcards
+        for (size_t i = 0; i < min_size; ++i) {
+            if (cluster->tokens[i] != tokens[i] && cluster->tokens[i] != WILDCARD) {
+                if (is_number(cluster->tokens[i]) && is_number(tokens[i])) {
+                    // Both are numbers, convert to wildcard
                     cluster->tokens[i] = WILDCARD;
-                    template_changed = true;
+                    cluster->parameter_indices.insert(i);
+                } else if (cluster->tokens[i] != tokens[i]) {
+                    // Different tokens, convert to wildcard
+                    cluster->tokens[i] = WILDCARD;
+                    cluster->parameter_indices.insert(i);
                 }
             }
         }
         
-        // Only update the template if it changed
-        if (template_changed) {
-            cluster->update_template();
-        }
+        // Update template string
+        cluster->update_template();
     }
     
     void split_node(std::shared_ptr<Node> node) {
-        // This is a simplified implementation of node splitting
-        // In a full implementation, we would use a more sophisticated algorithm
-        // to split the node based on the distribution of tokens
-        
-        // For now, we'll just keep the most recent clusters
-        if (node->clusters.size() > max_children_) {
-            // Sort clusters by ID (most recent first)
-            std::sort(node->clusters.begin(), node->clusters.end(),
-                [](const std::shared_ptr<LogCluster>& a, const std::shared_ptr<LogCluster>& b) {
-                    return a->id > b->id;
-                });
-            
-            // Keep only the most recent clusters
-            node->clusters.resize(max_children_);
+        // Only split if we have lots of clusters
+        if (node->clusters.size() <= 1) {
+            return;
         }
+        
+        // Create child nodes based on the parameter positions
+        for (const auto& cluster : node->clusters) {
+            // Use the first token that's not a wildcard as key
+            std::string key = WILDCARD;
+            for (const auto& token : cluster->tokens) {
+                if (token != WILDCARD) {
+                    key = token;
+                    break;
+                }
+            }
+            
+            // Create the child node if needed
+            if (node->children.find(key) == node->children.end()) {
+                node->children[key] = std::make_shared<Node>();
+            }
+            
+            // Move the cluster to the child node
+            node->children[key]->clusters.push_back(cluster);
+        }
+        
+        // Clear the parent node's clusters
+        node->clusters.clear();
     }
     
     void extract_parameters(const std::vector<std::string>& tokens, 
-                           std::shared_ptr<LogCluster> cluster,
-                           std::unordered_map<std::string, std::string>& parameters) {
-        // Extract parameters based on parameter indices
-        for (size_t i : cluster->parameter_indices) {
-            if (i < tokens.size()) {
-                // Use position as parameter name
-                parameters["param_" + std::to_string(i)] = tokens[i];
+                           std::shared_ptr<LogCluster> cluster) {
+        // Mark tokens that are likely parameters (e.g., numbers, hex, etc.)
+        for (size_t i = 0; i < tokens.size(); ++i) {
+            const std::string& token = tokens[i];
+            if (is_number(token)) {
+                cluster->parameter_indices.insert(i);
             }
         }
     }
     
     void extract_metadata(std::string_view line, LogRecordObject& record, const DataLoaderConfig& config) {
-        // Extract timestamp and severity if a pattern is provided
-        if (!config.log_pattern.empty() && !line.empty()) {
-            try {
-                // Create a safe copy of the string_view
-                std::string line_str;
-                line_str.reserve(line.size());
-                line_str.assign(line.data(), line.size());
+        // Extract timestamp if a format is provided
+        if (!config.timestamp_format.empty() && config.timestamp_column >= 0) {
+            // Split the line by the column delimiter
+            std::vector<std::string> columns = tokenize(line, config.column_delimiter);
+            
+            // Check if the timestamp column exists
+            if (static_cast<size_t>(config.timestamp_column) < columns.size()) {
+                std::string timestamp_str = columns[config.timestamp_column];
                 
-                std::regex pattern(config.log_pattern);
-                std::smatch matches;
-                
-                if (std::regex_search(line_str, matches, pattern)) {
-                    // Extract timestamp if available
-                    for (size_t i = 0; i < matches.size(); ++i) {
-                        std::string group_name = std::to_string(i);
-                        
-                        if (group_name == "timestamp" || i == 1) { // Assume first group is timestamp
-                            record.timestamp = parse_timestamp(matches[i].str(), config.datetime_format);
-                        } else if (group_name == "severity" || i == 2) { // Assume second group is severity
-                            record.severity = matches[i].str();
-                        }
-                    }
+                // Parse the timestamp
+                auto timestamp = parse_timestamp(timestamp_str, config.timestamp_format);
+                if (timestamp) {
+                    record.timestamp = timestamp;
                 }
-            } catch (const std::exception& e) {
-                std::lock_guard<std::mutex> lock(log_mutex);
-                std::cerr << "Error in extract_metadata function: " << e.what() << std::endl;
             }
+        }
+        
+        // Extract other metadata based on configuration
+        // For now, this is a simplified placeholder
+        try {
+            record.attributes["source"] = "log";
+        } catch (const std::exception& e) {
+            std::lock_guard<std::mutex> lock(log_mutex);
+            std::cerr << "Error extracting metadata: " << e.what() << std::endl;
+        }
+    }
+    
+    // Helper method to collect all templates from the tree
+    void collect_templates(const std::shared_ptr<Node>& node, std::unordered_map<int, std::string>& templates) {
+        // Add templates from this node
+        for (const auto& cluster : node->clusters) {
+            templates[cluster->id] = cluster->log_template;
+        }
+        
+        // Recursively collect from child nodes
+        for (const auto& [_, child] : node->children) {
+            collect_templates(child, templates);
         }
     }
 };
 
-// DrainParser implementation
 DrainParser::DrainParser(const DataLoaderConfig& config, int depth, double similarity_threshold, int max_children)
-    : config_(config), impl_(std::make_unique<DrainParserImpl>(depth, similarity_threshold, max_children)) {}
+    : impl_(std::make_unique<DrainParserImpl>(depth, similarity_threshold, max_children)), 
+      config_(config) {
+}
 
 DrainParser::~DrainParser() = default;
 
 LogRecordObject DrainParser::parse_line(std::string_view line) {
-    return impl_->parse(line, config_);
+    LogRecordObject record = impl_->parse(line, config_);
+    
+    // Store the template in our template store
+    int cluster_id = impl_->get_cluster_id_for_log(line);
+    template_store_.add_template(cluster_id, record.template_str, record);
+    
+    return record;
 }
 
 void DrainParser::setDepth(int depth) {
@@ -357,6 +417,26 @@ void DrainParser::setDepth(int depth) {
 
 void DrainParser::setSimilarityThreshold(double threshold) {
     impl_->setSimilarityThreshold(threshold);
+}
+
+std::vector<std::pair<int, float>> DrainParser::search_templates(const std::string& query, int top_k) {
+    return template_store_.search(query, top_k);
+}
+
+std::vector<LogRecordObject> DrainParser::get_logs_for_template(int template_id) {
+    return template_store_.get_logs(template_id);
+}
+
+bool DrainParser::save_templates(const std::string& path) {
+    return template_store_.save(path);
+}
+
+bool DrainParser::load_templates(const std::string& path) {
+    return template_store_.load(path);
+}
+
+const TemplateStore& DrainParser::get_template_store() const {
+    return template_store_;
 }
 
 } // namespace logai 

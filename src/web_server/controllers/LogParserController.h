@@ -22,6 +22,7 @@ public:
     METHOD_LIST_BEGIN
     ADD_METHOD_TO(LogParserController::parseDrain, "/api/parser/drain", drogon::Post);
     ADD_METHOD_TO(LogParserController::parseFile, "/api/parser/file", drogon::Post);
+    ADD_METHOD_TO(LogParserController::searchTemplates, "/api/parser/search", drogon::Post);
     METHOD_LIST_END
 
     LogParserController();
@@ -43,9 +44,20 @@ public:
     void parseFile(const drogon::HttpRequestPtr& req,
                    std::function<void(const drogon::HttpResponsePtr&)>&& callback);
 
+    /**
+     * @brief Search for log templates similar to a query
+     * @param req HTTP request with search query
+     * @param callback Response callback
+     */
+    void searchTemplates(const drogon::HttpRequestPtr& req,
+                        std::function<void(const drogon::HttpResponsePtr&)>&& callback);
+
 private:
     std::shared_ptr<ApiController> apiController_;
     std::unique_ptr<DrainParser> drainParser_;
+    
+    // Path to save/load templates
+    std::string template_store_path_ = "./templates.json";
 };
 
 } // namespace web
