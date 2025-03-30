@@ -3,8 +3,20 @@ Milvus client for LogAI
 """
 import logging
 import requests
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TYPE_CHECKING, Optional, Union
 
+# For type checking only (resolves IDE/linter import errors)
+if TYPE_CHECKING:
+    from pymilvus import (
+        connections,
+        utility,
+        FieldSchema,
+        CollectionSchema,
+        DataType,
+        Collection
+    )
+
+HAVE_MILVUS = False
 try:
     from pymilvus import (
         connections, 

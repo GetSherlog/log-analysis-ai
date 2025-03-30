@@ -12,8 +12,6 @@ add_library(logai
     log4j_parser.cpp
     cef_parser.cpp
     line_parser.cpp
-    milvus_store.cpp
-    milvus_store.h
 )
 target_include_directories(logai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -21,17 +19,11 @@ target_include_directories(logai PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 find_package(CURL REQUIRED)
 include_directories(${CURL_INCLUDE_DIRS})
 
-# Find Milvus
-find_package(Milvus REQUIRED)
-include_directories(${MILVUS_INCLUDE_DIRS})
-
 # Link with dependencies
 target_link_libraries(logai 
     PRIVATE nlohmann_json::nlohmann_json
     PRIVATE ${CURL_LIBRARIES}
-    PRIVATE DuckDB::duckdb
     PRIVATE folly
-    PRIVATE ${MILVUS_LIBRARIES}
     PRIVATE Boost::iostreams
     PRIVATE Boost::regex
     PRIVATE Boost::algorithm
@@ -46,13 +38,11 @@ target_link_libraries(logai_cpp PRIVATE
     logai
     nlohmann_json::nlohmann_json
     ${CURL_LIBRARIES}
-    DuckDB::duckdb
     spdlog
     Boost::iostreams  
     Boost::regex
     Boost::algorithm
     folly
-    ${MILVUS_LIBRARIES}
 )
 
 # Install

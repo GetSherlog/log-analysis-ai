@@ -61,23 +61,35 @@ RUN mkdir -p build && cd build \
              -DCMAKE_CXX_FLAGS="-Wno-array-bounds" \
              -DCMAKE_BUILD_PARALLEL_LEVEL=2 .. \
     && make -j2 \
-    && make install
+    && make install \
+    && ls -la # List files to debug
 
-# Install Python dependencies needed for the FastAPI server (including DuckDB)
+# Install Python dependencies needed for the FastAPI server
 RUN pip3 install --no-cache-dir pydantic openai instructor rich python-dotenv duckdb tqdm pandas numpy pydantic-ai fastapi uvicorn python-multipart gunicorn google-generativeai anthropic pymilvus
 
 # Create wheel package
 WORKDIR /app/python
-# Copy Python module to Python directory and prepare package files
-RUN cp /app/build/logai_cpp*.so . && \
-    # Create __init__.py to make it a proper package
-    echo "from .logai_cpp import *" > __init__.py && \
-    # Ensure the logai_agent.py script is executable
-    chmod +x logai_agent.py && \
-    # Ensure the logai_server.py script is executable
-    chmod +x logai_server.py && \
-    # Build wheel package
-    python3 setup.py bdist_wheel
+# Make the logai_cpp directory if it doesn't exist
+RUN mkdir -p logai_cpp
+
+# Try to find and copy the extension file from multiple possible locations
+RUN mkdir -p /tmp/ext_search \
+    && find /app -name "logai_cpp*.so" -exec cp -v {} /tmp/ext_search/ \; \
+    && ls -la /tmp/ext_search \
+    && if [ -n "$(ls -A /tmp/ext_search)" ]; then \
+          cp -v /tmp/ext_search/* logai_cpp/ && \
+          echo "Extension file copied successfully"; \
+       else \
+          echo "WARNING: Extension file not found"; \
+       fi \
+    && cp -v /app/build/logai_cpp*.so logai_cpp/ || echo "No extension in build dir"
+
+# Add a simple __init__.py file that handles both direct module loading and fallback
+COPY ./python/logai_cpp/__init__.py logai_cpp/__init__.py
+RUN chmod +x logai_agent.py && chmod +x logai_server.py
+
+# Build wheel package
+RUN python3 setup.py bdist_wheel
 
 # Final image
 FROM python:3.10-slim
@@ -93,7 +105,6 @@ RUN apt-get update && apt-get install -y \
 # Copy built libraries from builder stage
 COPY --from=builder /usr/local/lib/ /usr/local/lib/
 COPY --from=builder /usr/local/include/ /usr/local/include/
-COPY --from=builder /app/build/bin/ /usr/local/bin/
 COPY --from=builder /app/python/dist/ /dist/
 
 # Update library cache

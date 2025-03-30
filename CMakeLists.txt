@@ -25,7 +25,7 @@ find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(Folly REQUIRED)
 
-# We no longer need DuckDB - remove those dependencies
+# We no longer need DuckDB or Milvus - removed those dependencies
 
 find_package(CURL REQUIRED)
 
@@ -77,9 +77,18 @@ target_link_libraries(logai_cpp
 
 # Set output directory for Python module
 set_target_properties(logai_cpp PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/python/logai_cpp"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}"
     PREFIX ""
     SUFFIX ".so"
+)
+
+# Also output to python/logai_cpp directory for direct development use
+add_custom_command(TARGET logai_cpp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        $<TARGET_FILE:logai_cpp>
+        "${CMAKE_CURRENT_SOURCE_DIR}/python/logai_cpp/"
+    COMMENT "Copying Python module to python/logai_cpp directory"
 )
 
 # Install

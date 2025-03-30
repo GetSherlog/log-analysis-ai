@@ -16,8 +16,6 @@ using json = nlohmann::json;
 
 // Global objects to maintain state between calls
 static std::unique_ptr<logai::GeminiVectorizer> g_vectorizer;
-static std::string g_milvus_host = "milvus";
-static int g_milvus_port = 19530;
 
 // Helper function for HTTP requests
 static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
@@ -45,42 +43,6 @@ std::vector<float> generate_template_embedding(const std::string& template_text)
     } catch (const std::exception& e) {
         py::print("Error generating embedding:", e.what());
         return std::vector<float>();
-    }
-}
-
-// Initialize Milvus connection
-bool init_milvus(const std::string& host = "milvus", int port = 19530) {
-    try {
-        g_milvus_host = host;
-        g_milvus_port = port;
-        
-        // Test connection
-        CURL* curl = curl_easy_init();
-        if (!curl) {
-            py::print("Failed to initialize CURL");
-            return false;
-        }
-
-        std::string url = "http://" + host + ":" + std::to_string(port) + "/health";
-        std::string response;
-        
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-        
-        CURLcode res = curl_easy_perform(curl);
-        curl_easy_cleanup(curl);
-        
-        if (res != CURLE_OK) {
-            py::print("Failed to connect to Milvus server");
-            return false;
-        }
-        
-        py::print("Successfully connected to Milvus server");
-        return true;
-    } catch (const std::exception& e) {
-        py::print("Error initializing Milvus connection:", e.what());
-        return false;
     }
 }
 
@@ -228,11 +190,6 @@ py::dict extract_attributes(const std::vector<std::string>& log_lines, const std
     }
 }
 
-// Get Milvus connection string
-std::string get_milvus_connection_string() {
-    return g_milvus_host + ":" + std::to_string(g_milvus_port);
-}
-
 PYBIND11_MODULE(logai_cpp, m) {
     m.doc() = "LogAI C++ Module for Log Parsing and Analysis";
     
@@ -247,13 +204,6 @@ PYBIND11_MODULE(logai_cpp, m) {
     // Attribute extraction
     m.def("extract_attributes", &extract_attributes, "Extract attributes from log lines using regex patterns",
           py::arg("log_lines"), py::arg("patterns"));
-    
-    // Milvus functions
-    m.def("init_milvus", &init_milvus, "Initialize Milvus connection",
-          py::arg("host") = "milvus", py::arg("port") = 19530);
-    
-    m.def("get_milvus_connection_string", &get_milvus_connection_string,
-          "Get the Milvus connection string");
     
     // Embedding functions
     m.def("generate_template_embedding", &generate_template_embedding,
