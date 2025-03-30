@@ -101,7 +101,8 @@ setup(
         "python-dotenv>=1.0.0",
         "tqdm>=4.66.0",
         "numpy>=1.24.0",
-        "pandas>=2.0.0"
+        "pandas>=2.0.0",
+        "pydantic-ai==0.0.46"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

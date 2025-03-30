@@ -35,6 +35,7 @@ services:
       - milvus_data:/var/lib/milvus
     environment:
       - ETCD_ENDPOINTS=etcd:2379
+    command: ["milvus", "run", "standalone"]
     depends_on:
       - etcd
     networks:

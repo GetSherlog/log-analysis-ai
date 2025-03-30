@@ -114,7 +114,7 @@ RUN ldconfig
 RUN pip install --no-cache-dir /dist/*.whl
 
 # Install additional Python dependencies
-RUN pip install --no-cache-dir duckdb pymilvus
+RUN pip install --no-cache-dir duckdb pymilvus fastapi uvicorn python-multipart gunicorn pydantic-ai
 
 # Create a directory for sharing wheels with the host
 WORKDIR /shared
