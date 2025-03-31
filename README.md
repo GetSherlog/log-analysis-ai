@@ -1,131 +1,140 @@
-# LogAI C++
+# LogAI: AI-Powered Log Analysis Tool
 
-A high-performance C++ library for log analysis, focusing on template extraction and storage. This module is responsible for:
-
-- Log parsing and template extraction using DRAIN algorithm
-- Template storage in Milvus for efficient similarity search
-- Log attribute storage in DuckDB for structured querying
-
-The C++ module is designed to be fast and efficient, handling the core responsibilities of log parsing and storage. Higher-level analysis features are handled by the Python AI agent.
+LogAI is a powerful log analysis tool that combines the efficiency of C++ for log parsing and template extraction with the flexibility of Python for AI-powered analysis. It provides a comprehensive suite of tools for log analysis, visualization, and insights generation.
 
 ## Features
 
-- High-performance log parsing
-- Template extraction using DRAIN algorithm
-- Template storage in Milvus for vector similarity search
-- Structured log attribute storage in DuckDB
-- Python bindings for easy integration
-- FastAPI server for API access to log analysis functionality
+### Core Capabilities
+- **Efficient Log Parsing**: C++-based log parsing with template extraction
+- **Template Management**: Automatic template extraction and storage in DuckDB and Milvus
+- **SQL-like Querying**: Direct SQL queries against log data using DuckDB
+- **Rich Visualization**: Support for various visualization libraries (matplotlib, seaborn, plotly)
+- **Advanced Analytics**: Statistical analysis, anomaly detection, and pattern recognition
 
-## Dependencies
+### AI-Powered Analysis
+- **Natural Language Interface**: Ask questions about your logs in plain English
+- **Specialized Analysis Agents**:
+  - Causal Analysis: Identify potential causes of events
+  - User Impact Analysis: Assess how many users were affected
+  - Service Dependency Analysis: Map service interactions
+  - Event Context Analysis: Provide comprehensive event context
+  - Comparative Analysis: Compare different events or time periods
 
-- C++17 or later
-- CMake 3.15 or later
-- DuckDB
-- Milvus
-- Folly
-- nlohmann/json
-- pybind11 (for Python bindings)
+### Type-Safe AI Integration
+- **Pydantic Models**: Strong type enforcement for all inputs and outputs
+- **Structured Responses**: Well-defined response types for each analysis type
+- **Model Selection**: Automatic model selection based on task complexity:
+  - GPT-4 for complex analysis tasks
+  - Claude for medium complexity tasks
+  - Gemini for simpler tasks
 
-## Building
+### Data Analysis Features
+- **Time-based Analysis**: Filter and analyze logs by time ranges
+- **Level-based Filtering**: Filter logs by severity levels
+- **Pattern Detection**: Identify and count log patterns
+- **Statistical Analysis**: Calculate various statistics about log data
+- **Trend Analysis**: Identify trending patterns in logs
+
+## Installation
 
 ```bash
 # Clone the repository
 git clone https://github.com/yourusername/logai-cpp.git
 cd logai-cpp
 
-# Create build directory
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Build C++ components
 mkdir build && cd build
-
-# Configure with CMake
 cmake ..
-
-# Build
-make -j8
+make
 ```
 
-## Running with Docker
+## Usage
 
-The easiest way to run LogAI is using Docker Compose:
-
-```bash
-# Copy the example environment file and modify as needed
-cp .env.example .env
-
-# Edit .env and add your API keys
-nano .env
-
-# Start the services
-docker-compose up -d
-```
-
-This will start:
-- The LogAI FastAPI server on port 8000
-- Milvus vector database
-- Required supporting services
-
-## API Usage
-
-Once the server is running, you can access the OpenAPI documentation at:
-
-```
-http://localhost:8000/docs
-```
-
-Key API endpoints:
-
-- `POST /api/configure` - Configure the AI agent
-- `POST /api/initialize` - Initialize with a log file
-- `POST /api/upload-log-file` - Upload and parse a log file
-- `POST /api/search` - Search logs with a pattern
-- `POST /api/execute-query` - Execute SQL queries against log data
-- `GET /api/statistics` - Get statistics about the loaded logs
-
-## Python Integration
-
-The C++ module provides Python bindings for easy integration:
+### Basic Usage
 
 ```python
-import logai_cpp
+from logai_agent import LogAIAgent
 
-# Parse a log file
-logai_cpp.parse_log_file("logs/example.log")
+# Initialize the agent
+agent = LogAIAgent(provider="openai", api_key="your-api-key")
 
-# Extract templates
-templates = logai_cpp.extract_templates()
+# Load a log file
+agent.initialize("path/to/your/logs.log")
 
-# Store templates in Milvus
-logai_cpp.store_templates_in_milvus()
-
-# Store attributes in DuckDB
-logai_cpp.store_attributes_in_duckdb()
+# Ask questions about your logs
+response = await agent.chat_query("What caused the service outage at 2pm?")
+print(response.answer)
 ```
 
-### Using the FastAPI client
-
-You can also use the REST API from any programming language:
+### Advanced Analysis
 
 ```python
-import requests
+# Use specialized agents for specific analysis
+causal_analysis = await agent.specialized_agents.analyze_causality(
+    event="service outage",
+    time_window="1h"
+)
 
-# Configure the agent
-response = requests.post("http://localhost:8000/api/configure", json={
-    "provider": "openai",
-    "api_key": "your-api-key"
-})
+# Perform comparative analysis
+comparison = await agent.specialized_agents.compare_events(
+    event1="deployment",
+    event2="error spike",
+    metrics=["error_rate", "response_time"]
+)
 
-# Initialize with a log file
-response = requests.post("http://localhost:8000/api/initialize", json={
-    "log_file": "/path/to/logfile.log"
-})
-
-# Search logs
-response = requests.post("http://localhost:8000/api/search", json={
-    "query": "error",
-    "limit": 10
-})
+# Get user impact analysis
+impact = await agent.specialized_agents.analyze_user_impact(
+    event="login failure",
+    user_field="user_id"
+)
 ```
+
+### Data Visualization
+
+```python
+# Generate visualizations using the data analysis agent
+analysis_result = await agent.data_analysis_agent.analyze_logs(
+    "Show error rate trends over time with a line plot"
+)
+
+# Access generated visualizations
+for figure in analysis_result.figures:
+    # Display or save the figure
+    pass
+```
+
+## Architecture
+
+### Components
+1. **C++ Core**
+   - Log parsing and template extraction
+   - Template embedding generation
+   - Milvus integration for similarity search
+
+2. **Python Interface**
+   - Natural language processing
+   - Data analysis and visualization
+   - AI model integration
+
+3. **AI Agents**
+   - Main analysis agent for general queries
+   - Specialized agents for specific analysis types
+   - Data analysis agent for visualization and statistics
+
+### Data Flow
+1. Logs are parsed by C++ components
+2. Templates are extracted and stored
+3. Data is loaded into DuckDB
+4. AI agents analyze the data using available tools
+5. Results are returned in type-safe formats
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-MIT License 
+This project is licensed under the MIT License - see the LICENSE file for details. 
