@@ -3,7 +3,6 @@ FROM ubuntu:22.04 AS builder
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies (removed DuckDB and Milvus dependencies)
 RUN apt-get update && apt-get install -y \
     git cmake g++ make libssl-dev zlib1g-dev \
     libjsoncpp-dev uuid-dev wget curl \
@@ -65,7 +64,7 @@ RUN mkdir -p build && cd build \
     && ls -la # List files to debug
 
 # Install Python dependencies needed for the FastAPI server
-RUN pip3 install --no-cache-dir pydantic openai instructor rich python-dotenv duckdb tqdm pandas numpy pydantic-ai fastapi uvicorn python-multipart gunicorn google-generativeai anthropic pymilvus
+RUN pip3 install --no-cache-dir pydantic openai instructor rich python-dotenv duckdb tqdm pandas numpy pydantic-ai fastapi uvicorn python-multipart gunicorn google-generativeai anthropic qdrant-client
 
 # Create wheel package
 WORKDIR /app/python
@@ -114,7 +113,7 @@ RUN ldconfig
 RUN pip install --no-cache-dir /dist/*.whl
 
 # Install additional Python dependencies
-RUN pip install --no-cache-dir duckdb pymilvus fastapi uvicorn python-multipart gunicorn pydantic-ai
+RUN pip install --no-cache-dir duckdb qdrant-client fastapi uvicorn python-multipart gunicorn pydantic-ai
 
 # Create a directory for sharing wheels with the host
 WORKDIR /shared
@@ -133,8 +132,6 @@ EXPOSE 8000
 
 # Set environment variables
 ENV PYTHONPATH=/workspace
-ENV MILVUS_HOST=milvus
-ENV MILVUS_PORT=19530
 
 # Run the FastAPI server
 CMD ["uvicorn", "logai_server:app", "--host", "0.0.0.0", "--port", "8000"] 

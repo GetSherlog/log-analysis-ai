@@ -80,12 +80,6 @@ except Exception as e:
 
 # Import Python implementations
 from .embeddings import generate_template_embedding, GeminiVectorizer
-from .milvus_client import (
-    init_milvus,
-    get_milvus_connection_string,
-    insert_template,
-    search_similar_templates
-)
 
 # Define what should be accessible when importing the package
 __all__ = [
@@ -96,11 +90,5 @@ __all__ = [
     
     # Python implementations for embeddings
     "generate_template_embedding",
-    "GeminiVectorizer",
-    
-    # Python implementations for Milvus
-    "init_milvus",
-    "get_milvus_connection_string",
-    "insert_template",
-    "search_similar_templates"
+    "GeminiVectorizer"
 ] 

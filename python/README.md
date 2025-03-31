@@ -10,7 +10,7 @@ The LogAI Python module is designed as a direct interface to the high-performanc
    - Fast log parsing with customizable parsers
    - Template extraction using the Drain algorithm
    - High-performance data storage and querying with DuckDB
-   - Vector embeddings and similarity search with Milvus
+   - Vector embeddings and similarity search with Qdrant
 
 2. **Python Interface**:
    - Direct binding to the C++ library using pybind11
@@ -22,7 +22,7 @@ The LogAI Python module is designed as a direct interface to the high-performanc
 
 - **DuckDB Store**: Efficient SQL-based storage and querying of log data
 - **Drain Parser**: Extract log templates from raw logs
-- **Milvus Store**: Vector similarity search for log templates
+- **Qdrant Store**: Vector similarity search for log templates
 - **Vector Embeddings**: Generate and manage embeddings for logs
 - **Clustering**: Find patterns in log data
 
@@ -31,12 +31,8 @@ The LogAI Python module is designed as a direct interface to the high-performanc
 ```python
 import logai_cpp
 
-# Initialize stores
-logai_cpp.init_duckdb()  # Initialize DuckDB for structured data storage
-logai_cpp.init_milvus("localhost", 19530)  # Initialize Milvus for vector search
-
 # Parse a log file
-# This will automatically store data in both DuckDB and Milvus
+# This will automatically store data in both DuckDB and Qdrant
 parsed_logs = logai_cpp.parse_log_file("path/to/logs.log")
 
 # Query structured data from DuckDB
@@ -46,21 +42,17 @@ results = logai_cpp.execute_query("SELECT * FROM logs WHERE level = 'ERROR'")
 import pandas as pd
 df = pd.DataFrame(results[1:], columns=results[0])
 
-# Search for similar templates using Milvus
+# Search for similar templates using Qdrant
 similar_templates = logai_cpp.search_similar_templates(query_embedding, top_k=5)
 ```
 
 ## Using with pandas
 
 ```python
-from logai_cpp import init_duckdb, init_milvus, parse_log_file, execute_query
+from logai_cpp import init_duckdb, parse_log_file, execute_query
 import pandas as pd
 
-# Initialize LogAI components
-init_duckdb()
-init_milvus("localhost", 19530)
-
-# Parse logs and store in both DuckDB and Milvus
+# Parse logs and store in both DuckDB and Qdrant
 parse_log_file("logs.log")
 
 # Execute a query and convert to pandas DataFrame
@@ -90,7 +82,7 @@ logai-agent analyze --log-file path/to/logs.log
 ## Features
 
 - Parse and analyze log files of various formats
-- Extract log templates and store them in Milvus for vector search
+- Extract log templates and store them in Qdrant for vector search
 - Store structured log attributes in DuckDB for SQL analysis
 - Provide a natural language interface for asking complex questions about logs
 - Support for multi-step reasoning to solve complex log analysis tasks
@@ -150,7 +142,7 @@ Ask a question about your logs: How many errors occurred in the last hour?
 
 The agent will:
 1. Break down the question into steps
-2. Search for relevant log entries using both DuckDB and Milvus
+2. Search for relevant log entries using both DuckDB and Qdrant
 3. Process the data
 4. Provide a comprehensive answer
 

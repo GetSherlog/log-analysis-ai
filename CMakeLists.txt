@@ -25,8 +25,6 @@ find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
 find_package(Folly REQUIRED)
 
-# We no longer need DuckDB or Milvus - removed those dependencies
-
 find_package(CURL REQUIRED)
 
 # Add include directories

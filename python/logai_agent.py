@@ -51,6 +51,9 @@ except ImportError:
 # Import specialized agents
 from specialized_agents import SpecializedAgents
 
+# Import vector store
+from vector_store import VectorStore
+
 # Define models for our agent tools
 class LogTemplate(BaseModel):
     """A log template with its associated information."""
@@ -237,11 +240,12 @@ The analysis should:
             # Store templates in DuckDB
             self._store_templates_in_duckdb(templates)
             
-            # Store templates in Milvus if available
+            # Initialize vector store and store templates
             try:
-                self._store_templates_in_milvus(templates)
+                self.vector_store = VectorStore()
+                self._store_templates_in_vector_store(templates)
             except Exception as e:
-                self.console.print(f"[bold yellow]Warning: Failed to store templates in Milvus: {str(e)}[/]")
+                self.console.print(f"[bold yellow]Warning: Failed to store templates in vector store: {str(e)}[/]")
             
             # Initialize specialized agents
             self.specialized_agents = SpecializedAgents(self.duckdb_conn, self.api_key)
@@ -326,39 +330,55 @@ The analysis should:
         
         self.console.print(f"[bold green]✓[/] Stored {len(template_records)} templates in DuckDB")
 
-    def _store_templates_in_milvus(self, templates: Dict[str, Dict[str, Any]]) -> None:
-        """Store templates in Milvus."""
-        # Initialize Milvus connection
-        if not self.cpp_wrapper.init_milvus():
-            raise Exception("Failed to initialize Milvus connection")
-        
-        # Store each template in Milvus
+    def _store_templates_in_vector_store(self, templates: Dict[str, Dict[str, Any]]) -> None:
+        """Store templates in Qdrant vector store."""
         stored_count = 0
         failed_count = 0
         
         for template_id, template_data in templates.items():
-            # Generate embedding
-            template_text = template_data['template']
-            embedding = self.cpp_wrapper.generate_template_embedding(template_text)
-            
-            if not embedding:
-                failed_count += 1
-                continue
-            
-            # Store in Milvus using the Python Milvus client
-            success = self.cpp_wrapper.insert_template(
-                template_id=template_id,
-                template=template_text,
-                count=template_data['count'],
-                embedding=embedding
-            )
-            
-            if success:
+            try:
+                # Generate embedding
+                template_text = template_data['template']
+                embedding = self.cpp_wrapper.generate_template_embedding(template_text)
+                
+                if not embedding:
+                    failed_count += 1
+                    continue
+                
+                # Store in Qdrant
+                self.vector_store.store_template(
+                    template=template_text,
+                    embedding=embedding,
+                    metadata={
+                        'template_id': template_id,
+                        'count': template_data['count']
+                    }
+                )
                 stored_count += 1
-            else:
+            except Exception as e:
+                self.console.print(f"[bold yellow]Warning: Failed to store template {template_id}: {str(e)}[/]")
                 failed_count += 1
         
-        self.console.print(f"[bold green]✓[/] Stored {stored_count} templates in Milvus, failed: {failed_count}")
+        self.console.print(f"[bold green]✓[/] Stored {stored_count} templates in vector store, failed: {failed_count}")
+
+    def search_similar_templates(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """Search for similar templates using vector similarity."""
+        if not hasattr(self, 'vector_store'):
+            self.console.print("[bold yellow]Warning: Vector store not initialized.[/]")
+            return []
+        
+        try:
+            # Generate embedding for the query
+            query_embedding = self.cpp_wrapper.generate_template_embedding(query)
+            if not query_embedding:
+                return []
+            
+            # Search in Qdrant
+            results = self.vector_store.search_similar(query_embedding, limit=limit)
+            return results
+        except Exception as e:
+            self.console.print(f"[bold red]Error searching similar templates:[/] {str(e)}")
+            return []
 
     def initialize_data_analysis_agent(self) -> bool:
         """Initialize the DataAnalysisAgent for advanced analytics."""

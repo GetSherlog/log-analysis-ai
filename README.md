@@ -6,7 +6,7 @@ LogAI is a powerful log analysis tool that combines the efficiency of C++ for lo
 
 ### Core Capabilities
 - **Efficient Log Parsing**: C++-based log parsing with template extraction
-- **Template Management**: Automatic template extraction and storage in DuckDB and Milvus
+- **Template Management**: Automatic template extraction and storage in DuckDB and Qdrant
 - **SQL-like Querying**: Direct SQL queries against log data using DuckDB
 - **Rich Visualization**: Support for various visualization libraries (matplotlib, seaborn, plotly)
 - **Advanced Analytics**: Statistical analysis, anomaly detection, and pattern recognition
@@ -112,7 +112,7 @@ for figure in analysis_result.figures:
 1. **C++ Core**
    - Log parsing and template extraction
    - Template embedding generation
-   - Milvus integration for similarity search
+   - Qdrant integration for similarity search
 
 2. **Python Interface**
    - Natural language processing

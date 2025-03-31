@@ -6,6 +6,7 @@ pydantic>=2.4.0
 rich>=13.5.3
 pandas>=2.0.0
 duckdb>=0.8.1
+qdrant-client>=1.13.3
 
 # AI providers
 pydantic-ai>=0.0.46

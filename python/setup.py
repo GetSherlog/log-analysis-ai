@@ -97,7 +97,7 @@ setup(
         "rich>=13.0.0",
         "pybind11>=2.10.0",
         "duckdb>=0.10.0",
-        "pymilvus>=2.3.0",
+        "qdrant-client>=1.13.3",
         "python-dotenv>=1.0.0",
         "tqdm>=4.66.0",
         "numpy>=1.24.0",
