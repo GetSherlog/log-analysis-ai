@@ -1,6 +1,7 @@
 'use client'; // Add this directive for using hooks
 
 import React, { useState, useEffect, ChangeEvent } from 'react';
+import Image from 'next/image';
 
 // --- Interfaces ---
 type Message = {
@@ -158,6 +159,151 @@ const LogTableViewer = () => {
   );
 };
 
+const LogAnalyzer = () => {
+  const [analysisTask, setAnalysisTask] = useState<string>('');
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysis, setAnalysis] = useState<{
+    success: boolean;
+    analysis: string;
+    has_visualizations: boolean;
+    visualizations: string[];
+    error: string | null;
+  } | null>(null);
+  const [selectedTemplate, setSelectedTemplate] = useState<string>('');
+
+  // Predefined analysis templates
+  const analysisTemplates = [
+    { id: 'level-count', name: 'Count by Log Level', query: 'Count logs by level and show distribution' },
+    { id: 'time-dist', name: 'Time Distribution', query: 'Show time distribution of logs' },
+    { id: 'template-trend', name: 'Template Patterns', query: 'Analyze template trends in logs' },
+    { id: 'custom', name: 'Custom Analysis', query: '' }
+  ];
+
+  const handleTemplateChange = (e: ChangeEvent<HTMLSelectElement>) => {
+    const templateId = e.target.value;
+    setSelectedTemplate(templateId);
+    
+    if (templateId === 'custom') {
+      setAnalysisTask('');
+    } else {
+      const template = analysisTemplates.find(t => t.id === templateId);
+      if (template) {
+        setAnalysisTask(template.query);
+      }
+    }
+  };
+
+  const runAnalysis = async () => {
+    if (!analysisTask.trim()) return;
+    
+    setIsAnalyzing(true);
+    setAnalysis(null);
+    
+    try {
+      const response = await fetch(`${API_URL}/api/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: analysisTask }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      setAnalysis(result);
+    } catch (error) {
+      console.error("Error during analysis:", error);
+      setAnalysis({
+        success: false,
+        analysis: '',
+        has_visualizations: false,
+        visualizations: [],
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  return (
+    <div className="bg-gray-100 p-4 rounded-lg shadow-md flex flex-col">
+      <h2 className="text-xl font-semibold mb-4 text-gray-800">Log Analysis</h2>
+      
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Analysis Type
+        </label>
+        <select
+          className="w-full p-2 border rounded"
+          value={selectedTemplate}
+          onChange={handleTemplateChange}
+        >
+          <option value="">Select analysis type</option>
+          {analysisTemplates.map((template) => (
+            <option key={template.id} value={template.id}>
+              {template.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Analysis Description
+        </label>
+        <textarea
+          className="w-full p-2 border rounded"
+          rows={3}
+          value={analysisTask}
+          onChange={(e) => setAnalysisTask(e.target.value)}
+          placeholder="Describe what kind of analysis to perform..."
+        />
+      </div>
+      
+      <button
+        className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50 mb-4"
+        onClick={runAnalysis}
+        disabled={isAnalyzing || !analysisTask.trim()}
+      >
+        {isAnalyzing ? 'Analyzing...' : 'Analyze Logs'}
+      </button>
+      
+      {analysis && (
+        <div className="mt-4 border-t pt-4">
+          <h3 className="text-lg font-medium mb-2">Analysis Result</h3>
+          {analysis.error ? (
+            <div className="text-red-500">{analysis.error}</div>
+          ) : (
+            <>
+              <div className="mb-4 p-3 bg-white rounded">{analysis.analysis}</div>
+              
+              {analysis.has_visualizations && analysis.visualizations.length > 0 && (
+                <div className="mt-4">
+                  <h4 className="text-md font-medium mb-2">Visualizations</h4>
+                  <div className="grid grid-cols-1 gap-4">
+                    {analysis.visualizations.map((viz, index) => (
+                      <div key={index} className="border p-2 bg-white">
+                        <Image 
+                          src={`data:image/png;base64,${viz}`} 
+                          alt={`Visualization ${index+1}`}
+                          width={800}
+                          height={500}
+                          className="mx-auto"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const LogFileUploader = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -241,25 +387,49 @@ const LogFileUploader = () => {
 // --- Main Page ---
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<'logs' | 'analysis'>('logs');
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-8 bg-gray-50">
       <div className="z-10 max-w-6xl w-full items-center justify-between font-mono text-sm lg:flex mb-8">
         <h1 className="text-3xl font-bold text-gray-900">LogAI C++ Test UI</h1>
+        
+        <div className="flex space-x-4 mt-4 lg:mt-0">
+          <button 
+            className={`px-4 py-2 font-medium rounded ${activeTab === 'logs' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => setActiveTab('logs')}
+          >
+            Logs & Chat
+          </button>
+          <button 
+            className={`px-4 py-2 font-medium rounded ${activeTab === 'analysis' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+            onClick={() => setActiveTab('analysis')}
+          >
+            Analysis
+          </button>
+        </div>
       </div>
 
-      <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left Column: Chat and Uploader */}
-        <div className="flex flex-col gap-8">
-          <ChatInterface />
-          <LogFileUploader />
-        </div>
+      {activeTab === 'logs' && (
+        <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column: Chat and Uploader */}
+          <div className="flex flex-col gap-8">
+            <ChatInterface />
+            <LogFileUploader />
+          </div>
 
-        {/* Right Column: Log Viewer */}
-        <div className="lg:col-span-1">
-          <LogTableViewer />
+          {/* Right Column: Log Viewer */}
+          <div className="lg:col-span-1">
+            <LogTableViewer />
+          </div>
         </div>
-      </div>
-
+      )}
+      
+      {activeTab === 'analysis' && (
+        <div className="w-full max-w-6xl">
+          <LogAnalyzer />
+        </div>
+      )}
     </main>
   );
 }

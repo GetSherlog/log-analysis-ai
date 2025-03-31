@@ -40,6 +40,14 @@ except ImportError:
     print("Warning: LogAI C++ module not found. Some functionality will be limited.")
     HAS_CPP_MODULE = False
 
+# Import our data analysis agent
+try:
+    from data_analysis_agent import DataAnalysisAgent
+    HAS_DATA_ANALYSIS = True
+except ImportError:
+    print("Warning: DataAnalysisAgent module not found. Advanced analytics will be limited.")
+    HAS_DATA_ANALYSIS = False
+
 # Define models for our agent tools
 class LogTemplate(BaseModel):
     """A log template with its associated information."""
@@ -307,6 +315,20 @@ class LogAIAgent:
         
         self.console.print(f"[bold green]✓[/] Stored {stored_count} templates in Milvus, failed: {failed_count}")
 
+    def initialize_data_analysis_agent(self) -> bool:
+        """Initialize the DataAnalysisAgent for advanced analytics."""
+        if not HAS_DATA_ANALYSIS:
+            self.console.print("[bold yellow]Warning: DataAnalysisAgent not available - advanced analytics disabled.[/]")
+            return False
+            
+        try:
+            self.data_analysis_agent = DataAnalysisAgent(duckdb_conn=self.duckdb_conn)
+            self.console.print("[bold green]✓[/] Data Analysis Agent initialized")
+            return True
+        except Exception as e:
+            self.console.print(f"[bold red]Error initializing Data Analysis Agent:[/] {str(e)}")
+            return False
+
     def execute_query(self, query: str) -> Dict[str, Any]:
         """Execute a SQL query against the log data."""
         if not self.is_initialized:
@@ -459,6 +481,52 @@ class LogAIAgent:
         result = self.execute_query(sql)
         return [dict(zip(result['columns'], row)) for row in result['rows']] if result else []
 
+    def analyze_logs(self, analysis_task: str) -> Dict[str, Any]:
+        """Perform advanced log analysis using python code.
+        
+        This uses the DataAnalysisAgent to generate and execute Python code
+        to analyze the logs based on the given task description. The result
+        includes visualizations and detailed analytics.
+        
+        Args:
+            analysis_task: Description of the analysis to perform
+            
+        Returns:
+            Dict with analysis results, including any visualizations
+        """
+        if not self.is_initialized:
+            return {"error": "Agent not initialized with log data"}
+            
+        if not hasattr(self, 'data_analysis_agent'):
+            success = self.initialize_data_analysis_agent()
+            if not success:
+                return {"error": "Failed to initialize Data Analysis Agent"}
+        
+        self.console.print(f"[bold blue]Performing log analysis:[/] {analysis_task}")
+        try:
+            # Call the data analysis agent to perform the task
+            # Since analyze_logs is now async, we need to run it in an event loop
+            import asyncio
+            analysis_result = asyncio.run(self.data_analysis_agent.analyze_logs(analysis_task))
+            
+            # Prepare a summary of the result
+            summary = {
+                "success": analysis_result.get("success", False),
+                "analysis": analysis_result.get("result", {}).get("analysis", "No analysis available"),
+                "has_visualizations": len(analysis_result.get("figures", [])) > 0,
+                "visualization_count": len(analysis_result.get("figures", [])),
+                "code_generated": True,
+                "error": analysis_result.get("error", "")
+            }
+            
+            # Include the full result for detailed access
+            summary["full_result"] = analysis_result
+            
+            return summary
+        except Exception as e:
+            self.console.print(f"[bold red]Error during log analysis:[/] {str(e)}")
+            return {"error": f"Analysis failed: {str(e)}"}
+
     # --- AI Chat Method --- #
     async def chat_query(self, query: str) -> str:
         """Processes a natural language query using the AI model and available tools."""
@@ -466,6 +534,10 @@ class LogAIAgent:
             return "Error: AI model not initialized."
         if not self.is_initialized:
             return "Error: Agent not initialized with log data."
+
+        # Initialize data analysis agent if needed
+        if not hasattr(self, 'data_analysis_agent') and HAS_DATA_ANALYSIS:
+            self.initialize_data_analysis_agent()
 
         # Define the tools available to the AI
         # The AI will decide which tool to use based on the query
@@ -479,8 +551,12 @@ class LogAIAgent:
             self.filter_by_level,
             self.calculate_statistics,
             self.get_trending_patterns,
-            self.execute_query # Allow direct SQL execution as a fallback tool
+            self.execute_query, # Allow direct SQL execution as a fallback tool
         ]
+        
+        # Add the analyze_logs tool if data analysis agent is available
+        if hasattr(self, 'data_analysis_agent'):
+            tools.append(self.analyze_logs)
 
         # Create the agent instance from pydantic-ai
         # Note: Consider caching or initializing this agent once if performance is critical

@@ -74,6 +74,18 @@ class LogAIAgentConfig(BaseModel):
     model: Optional[str] = None
     host: Optional[str] = "http://localhost:11434"
 
+class AnalysisRequest(BaseModel):
+    """Request for data analysis tasks."""
+    task: str = Field(..., description="Description of the analysis task to perform")
+
+class AnalysisResponse(BaseModel):
+    """Response for data analysis tasks."""
+    success: bool = Field(..., description="Whether the analysis was successful")
+    analysis: str = Field(..., description="Textual analysis result")
+    has_visualizations: bool = Field(..., description="Whether visualizations were generated")
+    visualizations: List[str] = Field(default_factory=list, description="Base64-encoded visualizations")
+    error: Optional[str] = Field(None, description="Error message if analysis failed")
+
 class ChatRequest(BaseModel):
     query: str
 
@@ -231,6 +243,36 @@ async def get_trending_patterns(request: TrendingPatternsRequest, agent: LogAIAg
         return patterns
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/analyze", response_model=AnalysisResponse)
+async def analyze_logs(request: AnalysisRequest, agent: LogAIAgent = Depends(get_initialized_agent)):
+    """Perform advanced log analysis with visualizations."""
+    try:
+        # Call the agent's analyze_logs method with the requested task
+        result = agent.analyze_logs(request.task)
+        
+        if "error" in result and result["error"]:
+            raise HTTPException(status_code=500, detail=result["error"])
+        
+        # Extract the visualizations if any
+        visualizations = []
+        if "full_result" in result and "figures" in result["full_result"]:
+            visualizations = result["full_result"]["figures"]
+        
+        # Prepare the response
+        return AnalysisResponse(
+            success=result.get("success", False),
+            analysis=result.get("analysis", "No analysis available"),
+            has_visualizations=result.get("has_visualizations", False),
+            visualizations=visualizations,
+            error=result.get("error", None)
+        )
+    except HTTPException as http_exc:
+        # Re-raise HTTP exceptions
+        raise http_exc
+    except Exception as e:
+        print(f"Error in analyze_logs endpoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Error performing log analysis: {str(e)}")
 
 @app.get("/health")
 async def health_check():
