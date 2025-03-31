@@ -7,7 +7,7 @@ interface Message {
   timestamp: Date;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = 'http://localhost:8000';
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -56,13 +56,18 @@ export default function ChatInterface() {
       const response = await fetch(`${API_URL}/api/upload-log-file`, {
         method: 'POST',
         body: formData,
+        headers: {
+          'Accept': 'application/json',
+        },
+      }).catch(error => {
+        throw new Error(`Network error: ${error.message}`);
       });
 
       if (!response.ok) {
-        throw new Error(`Upload failed: ${response.statusText}`);
+        throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
       }
 
-      const result = await response.json();
+      await response.json();
       
       // Add system message about successful upload
       setMessages(prev => [...prev, {
