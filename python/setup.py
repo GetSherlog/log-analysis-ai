@@ -102,7 +102,15 @@ setup(
         "tqdm>=4.66.0",
         "numpy>=1.24.0",
         "pandas>=2.0.0",
-        "pydantic-ai==0.0.46"
+        "pydantic-ai==0.0.46",
+        "anthropic>=0.8.0",  # For Claude model
+        "google-generativeai>=0.3.0",  # For Gemini model
+        "scikit-learn>=1.3.0",  # For statistical analysis
+        "scipy>=1.11.0",  # For scientific computing
+        "networkx>=3.1",  # For dependency graph analysis
+        "matplotlib>=3.7.0",  # For visualization
+        "seaborn>=0.12.0",  # For statistical visualizations
+        "plotly>=5.18.0",  # For interactive visualizations
     ],
     classifiers=[
         "Programming Language :: Python :: 3",

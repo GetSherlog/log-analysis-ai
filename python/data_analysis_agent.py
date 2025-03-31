@@ -15,6 +15,13 @@ from rich.console import Console
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIModel
+import datetime
+import re
+import json
+import seaborn as sns
+import plotly
+import scipy
+import sklearn
 
 # Force matplotlib to use Agg backend (non-interactive, good for web)
 matplotlib.use('Agg')
@@ -28,9 +35,17 @@ class CodeGenerationRequest(BaseModel):
 class CodeGenerationResponse(BaseModel):
     """Response containing generated analysis code."""
     code: str = Field(..., description="The generated Python code")
-    explanation: str = Field(..., description="Explanation of what the code does")
-    required_imports: List[str] = Field(default_factory=list, description="Required Python imports")
-    expected_output: str = Field(..., description="Description of expected output")
+    explanation: str = Field(..., description="Explanation of the generated code")
+
+class AnalysisResult(BaseModel):
+    """Result of log analysis execution."""
+    success: bool = Field(..., description="Whether the analysis was successful")
+    output: str = Field(..., description="Text output from code execution")
+    error: str = Field(default="", description="Error message if execution failed")
+    figures: List[str] = Field(default_factory=list, description="List of base64-encoded figures")
+    dataframes: List[Dict[str, Any]] = Field(default_factory=list, description="List of DataFrame summaries")
+    result: Optional[Dict[str, Any]] = Field(default=None, description="The final analysis result")
+    generated_code: Optional[str] = Field(default=None, description="The generated Python code")
 
 class DataAnalysisAgent:
     """Agent for executing data analysis code in a sandboxed environment."""
@@ -61,10 +76,41 @@ class DataAnalysisAgent:
             'plt': plt,
             'matplotlib': matplotlib,
             'io': io,
+            'datetime': datetime,
+            're': re,
+            'json': json,
+            'seaborn': sns,  # For better visualizations
+            'plotly': plotly,  # For interactive visualizations
+            'scipy': scipy,  # For statistical analysis
+            'sklearn': sklearn,  # For machine learning analysis
         }
         
         # Initialize the AI model for code generation
         self.model = OpenAIModel(api_key=api_key, model="gpt-4")
+        
+        # Initialize the code generation agent with type enforcement
+        self.code_generation_agent = Agent(
+            self.model,
+            result_type=CodeGenerationResponse,
+            system_prompt="""You are a Python code generation expert specializing in log analysis and data visualization.
+Your task is to generate Python code that analyzes log data based on the user's request.
+
+Guidelines:
+1. Use the provided helper functions and data structures
+2. Always include proper error handling
+3. Generate visualizations when relevant
+4. Store the final result in a 'result' dictionary
+5. Use pandas and matplotlib/seaborn for data manipulation and visualization
+6. Include comments explaining the code
+7. Follow Python best practices and PEP 8 style guide
+
+The code should:
+- Be safe to execute in a sandboxed environment
+- Handle missing or malformed data gracefully
+- Use appropriate data types and conversions
+- Generate clear and informative visualizations
+- Provide meaningful analysis results"""
+        )
         
     def load_logs_as_dataframe(self) -> pd.DataFrame:
         """Load log data into a Pandas DataFrame for analysis."""
@@ -108,8 +154,37 @@ class DataAnalysisAgent:
             'execute_query': lambda query: self.duckdb_conn.execute(query).fetchdf(),
             'result': None,  # Will store the final result
             'plot_to_base64': self._plot_to_base64,
+            
+            # Log analysis specific helpers
+            'parse_timestamp': lambda ts: pd.to_datetime(ts, errors='coerce'),
+            'extract_patterns': lambda text, pattern: re.findall(pattern, text),
+            'calculate_stats': lambda series: {
+                'mean': series.mean(),
+                'median': series.median(),
+                'std': series.std(),
+                'min': series.min(),
+                'max': series.max(),
+                'count': series.count(),
+                'unique': series.nunique()
+            },
+            'detect_anomalies': lambda series, threshold=2: {
+                'mean': series.mean(),
+                'std': series.std(),
+                'anomalies': series[abs(series - series.mean()) > threshold * series.std()]
+            },
+            'group_by_time': lambda df, col, freq='H': df.set_index(col).groupby(pd.Grouper(freq=freq)),
+            'create_heatmap': lambda df, x, y, values: pd.pivot_table(df, values=values, index=y, columns=x, aggfunc='count'),
+            
+            # Visualization helpers
+            'plot_timeseries': lambda df, x, y, title=None: self._plot_timeseries(df, x, y, title),
+            'plot_distribution': lambda series, title=None: self._plot_distribution(series, title),
+            'plot_correlation': lambda df, cols, title=None: self._plot_correlation(df, cols, title),
+            'plot_heatmap': lambda df, x, y, values, title=None: self._plot_heatmap(df, x, y, values, title),
+            
             # Safe versions of certain functions
             'plt': plt,
+            'sns': sns,
+            'plotly': plotly,
         }
         
         # Add our globals to the execution context
@@ -164,106 +239,48 @@ class DataAnalysisAgent:
         base64_str = base64.b64encode(img_data.getvalue()).decode()
         return base64_str
 
-    async def generate_analysis_code(self, task_description: str) -> str:
-        """Generate Python code for the analysis task using AI.
+    def _plot_timeseries(self, df: pd.DataFrame, x: str, y: str, title: Optional[str] = None) -> None:
+        """Helper to create a time series plot."""
+        plt.figure(figsize=(12, 6))
+        plt.plot(df[x], df[y])
+        if title:
+            plt.title(title)
+        plt.xlabel(x)
+        plt.ylabel(y)
+        plt.grid(True, alpha=0.3)
         
-        Args:
-            task_description: Description of the analysis task
+    def _plot_distribution(self, series: pd.Series, title: Optional[str] = None) -> None:
+        """Helper to create a distribution plot."""
+        plt.figure(figsize=(10, 6))
+        sns.histplot(series, kde=True)
+        if title:
+            plt.title(title)
+        plt.grid(True, alpha=0.3)
+        
+    def _plot_correlation(self, df: pd.DataFrame, cols: List[str], title: Optional[str] = None) -> None:
+        """Helper to create a correlation heatmap."""
+        if len(cols) < 2:
+            raise ValueError("Need at least 2 columns for correlation analysis")
             
-        Returns:
-            Generated Python code as a string
-        """
-        # Dynamically inspect available data and functions
-        available_data = {}
-        
-        # Inspect DataFrame columns if available
-        try:
-            logs_df = self.load_logs_as_dataframe()
-            available_data["logs"] = {
-                "type": "DataFrame",
-                "columns": logs_df.columns.tolist(),
-                "description": "Log entries data"
-            }
-        except Exception as e:
-            self.console.print(f"[yellow]Warning: Could not inspect logs DataFrame: {e}[/]")
+        # Select only numeric columns
+        numeric_df = df[cols].select_dtypes(include=[np.number])
+        if len(numeric_df.columns) < 2:
+            raise ValueError("Need at least 2 numeric columns for correlation analysis")
             
-        try:
-            templates_df = self.load_templates_as_dataframe()
-            available_data["templates"] = {
-                "type": "DataFrame",
-                "columns": templates_df.columns.tolist(),
-                "description": "Log templates data"
-            }
-        except Exception as e:
-            self.console.print(f"[yellow]Warning: Could not inspect templates DataFrame: {e}[/]")
-        
-        # Inspect available functions in the execution context
-        available_functions = {}
-        for name, func in self.globals.items():
-            if callable(func):
-                # Get function signature and docstring
-                import inspect
-                sig = inspect.signature(func)
-                doc = inspect.getdoc(func) or "No documentation available"
-                available_functions[name] = {
-                    "type": "function",
-                    "signature": str(sig),
-                    "description": doc
-                }
-        
-        # Add our helper functions
-        available_functions.update({
-            "get_logs": {
-                "type": "function",
-                "signature": "() -> pd.DataFrame",
-                "description": "Load log entries as a DataFrame"
-            },
-            "get_templates": {
-                "type": "function",
-                "signature": "() -> pd.DataFrame",
-                "description": "Load templates as a DataFrame"
-            },
-            "execute_query": {
-                "type": "function",
-                "signature": "(query: str) -> pd.DataFrame",
-                "description": "Execute SQL queries and return results as DataFrame"
-            },
-            "plot_to_base64": {
-                "type": "function",
-                "signature": "(fig) -> str",
-                "description": "Convert matplotlib figures to base64 strings"
-            }
-        })
-        
-        # Create the request
-        request = CodeGenerationRequest(
-            task_description=task_description,
-            available_data={
-                "dataframes": available_data,
-                "functions": available_functions
-            },
-            requirements=[
-                "Use pandas and matplotlib for analysis and visualization",
-                "Store the final result in a 'result' variable as a dictionary",
-                "Include appropriate error handling",
-                "Generate visualizations when relevant",
-                "Use the provided helper functions for data access"
-            ]
-        )
-        
-        # Create the agent for code generation
-        agent = Agent(self.model, tools=[self.execute_code])
-        
-        # Generate the code
-        response = await agent.run(request)
-        
-        # Extract the code from the response
-        if isinstance(response, CodeGenerationResponse):
-            return response.code
-        else:
-            raise ValueError("Unexpected response format from code generation")
-    
-    async def analyze_logs(self, analysis_task: str) -> Dict[str, Any]:
+        plt.figure(figsize=(10, 8))
+        sns.heatmap(numeric_df.corr(), annot=True, cmap='coolwarm', center=0)
+        if title:
+            plt.title(title)
+            
+    def _plot_heatmap(self, df: pd.DataFrame, x: str, y: str, values: str, title: Optional[str] = None) -> None:
+        """Helper to create a heatmap from pivot table."""
+        pivot_table = pd.pivot_table(df, values=values, index=y, columns=x, aggfunc='count')
+        plt.figure(figsize=(12, 8))
+        sns.heatmap(pivot_table, annot=True, fmt='g', cmap='YlOrRd')
+        if title:
+            plt.title(title)
+
+    async def analyze_logs(self, analysis_task: str) -> AnalysisResult:
         """Generate and execute code to analyze logs based on a task description.
         
         Args:
@@ -276,29 +293,54 @@ class DataAnalysisAgent:
         
         try:
             # Generate the analysis code using AI
-            code = await self.generate_analysis_code(analysis_task)
+            code_response = await self.code_generation_agent.run(
+                CodeGenerationRequest(
+                    task_description=analysis_task,
+                    available_data={
+                        "dataframes": self._get_available_data(),
+                        "functions": self._get_available_functions()
+                    },
+                    requirements=[
+                        "Use pandas and matplotlib for analysis and visualization",
+                        "Store the final result in a 'result' variable as a dictionary",
+                        "Include appropriate error handling",
+                        "Generate visualizations when relevant",
+                        "Use the provided helper functions for data access"
+                    ]
+                )
+            )
             
             # Execute the generated code
             self.console.print("[bold blue]Executing analysis code...[/]")
-            execution_result = self.execute_code(code)
+            execution_result = self.execute_code(code_response.code)
             
             if execution_result['success']:
                 self.console.print("[bold green]Analysis completed successfully[/]")
             else:
                 self.console.print(f"[bold red]Analysis failed:[/] {execution_result['error']}")
             
-            # Add the generated code to the result
-            execution_result['generated_code'] = code
-            
-            return execution_result
+            # Create the analysis result with type enforcement
+            return AnalysisResult(
+                success=execution_result['success'],
+                output=execution_result['output'],
+                error=execution_result['error'],
+                figures=execution_result['figures'],
+                dataframes=execution_result['dataframes'],
+                result=execution_result['result'],
+                generated_code=code_response.code
+            )
             
         except Exception as e:
             self.console.print(f"[bold red]Error during code generation:[/] {str(e)}")
-            return {
-                'success': False,
-                'error': f"Code generation failed: {str(e)}",
-                'generated_code': None
-            }
+            return AnalysisResult(
+                success=False,
+                output="",
+                error=f"Code generation failed: {str(e)}",
+                figures=[],
+                dataframes=[],
+                result=None,
+                generated_code=None
+            )
 
 # For CLI testing
 if __name__ == "__main__":

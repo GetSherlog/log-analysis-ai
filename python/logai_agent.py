@@ -48,6 +48,9 @@ except ImportError:
     print("Warning: DataAnalysisAgent module not found. Advanced analytics will be limited.")
     HAS_DATA_ANALYSIS = False
 
+# Import specialized agents
+from specialized_agents import SpecializedAgents
+
 # Define models for our agent tools
 class LogTemplate(BaseModel):
     """A log template with its associated information."""
@@ -101,6 +104,19 @@ class LogAnalysisResult(BaseModel):
     steps: List[LogAnalysisStep] = Field(..., description="Steps taken to analyze the logs")
     final_answer: str = Field(..., description="The final answer to the user's question")
 
+class LogAnalysisRequest(BaseModel):
+    """Request for log analysis."""
+    query: str = Field(..., description="The natural language query to analyze")
+    context: Dict[str, Any] = Field(default_factory=dict, description="Additional context for the analysis")
+
+class LogAnalysisResponse(BaseModel):
+    """Response from log analysis."""
+    answer: str = Field(..., description="The final answer to the user's question")
+    steps: List[LogAnalysisStep] = Field(..., description="Steps taken to analyze the logs")
+    tools_used: List[str] = Field(..., description="List of tools used in the analysis")
+    confidence: float = Field(..., description="Confidence score for the analysis")
+    error: Optional[str] = Field(default=None, description="Error message if analysis failed")
+
 # Default model mapping for different providers
 DEFAULT_MODELS = {
     "openai": "gpt-4o",
@@ -129,9 +145,34 @@ class LogAIAgent:
         self.api_key = api_key
         self.model = None
         self.host = host
+        self.specialized_agents = None
         
         # Set up model based on provider
         self._setup_model(provider, model, api_key, host)
+        
+        # Initialize the main analysis agent with type enforcement
+        self.analysis_agent = Agent(
+            self.model,
+            result_type=LogAnalysisResponse,
+            system_prompt="""You are a log analysis expert specializing in analyzing and interpreting log data.
+Your task is to help users understand their logs by answering questions and providing insights.
+
+Guidelines:
+1. Use available tools to gather relevant log data
+2. Analyze patterns and relationships in the logs
+3. Provide clear and concise explanations
+4. Include supporting evidence from logs
+5. Consider temporal relationships between events
+6. Identify potential issues and their causes
+7. Suggest relevant follow-up questions
+
+The analysis should:
+- Be thorough and well-reasoned
+- Use appropriate tools for each step
+- Provide confidence scores for conclusions
+- Include relevant log excerpts as evidence
+- Consider both direct and indirect relationships"""
+        )
         
     def _setup_model(self, provider: str, model: Optional[str] = None, api_key: Optional[str] = None, host: Optional[str] = None):
         """Set up the appropriate AI model based on provider."""
@@ -202,12 +243,16 @@ class LogAIAgent:
             except Exception as e:
                 self.console.print(f"[bold yellow]Warning: Failed to store templates in Milvus: {str(e)}[/]")
             
+            # Initialize specialized agents
+            self.specialized_agents = SpecializedAgents(self.duckdb_conn, self.api_key)
+            
             self.log_file = log_file
             self.is_initialized = True
             
             self.console.print("[bold green]✓[/] Log file parsed successfully")
             self.console.print("[bold green]✓[/] Templates extracted and stored")
             self.console.print("[bold green]✓[/] Attributes stored in DuckDB")
+            self.console.print("[bold green]✓[/] Specialized agents initialized")
             
             return True
         except Exception as e:
@@ -528,19 +573,30 @@ class LogAIAgent:
             return {"error": f"Analysis failed: {str(e)}"}
 
     # --- AI Chat Method --- #
-    async def chat_query(self, query: str) -> str:
+    async def chat_query(self, query: str) -> LogAnalysisResponse:
         """Processes a natural language query using the AI model and available tools."""
         if not self.model:
-            return "Error: AI model not initialized."
+            return LogAnalysisResponse(
+                answer="Error: AI model not initialized.",
+                steps=[],
+                tools_used=[],
+                confidence=0.0,
+                error="AI model not initialized"
+            )
         if not self.is_initialized:
-            return "Error: Agent not initialized with log data."
+            return LogAnalysisResponse(
+                answer="Error: Agent not initialized with log data.",
+                steps=[],
+                tools_used=[],
+                confidence=0.0,
+                error="Agent not initialized with log data"
+            )
 
         # Initialize data analysis agent if needed
         if not hasattr(self, 'data_analysis_agent') and HAS_DATA_ANALYSIS:
             self.initialize_data_analysis_agent()
 
         # Define the tools available to the AI
-        # The AI will decide which tool to use based on the query
         tools = [
             self.search_logs,
             self.get_template,
@@ -551,23 +607,47 @@ class LogAIAgent:
             self.filter_by_level,
             self.calculate_statistics,
             self.get_trending_patterns,
-            self.execute_query, # Allow direct SQL execution as a fallback tool
+            self.execute_query,
         ]
+        
+        # Add specialized agent tools if available
+        if self.specialized_agents:
+            tools.extend([
+                self.specialized_agents.analyze_causality,
+                self.specialized_agents.analyze_user_impact,
+                self.specialized_agents.analyze_service_dependencies,
+                self.specialized_agents.get_event_context,
+                self.specialized_agents.compare_events,
+            ])
         
         # Add the analyze_logs tool if data analysis agent is available
         if hasattr(self, 'data_analysis_agent'):
             tools.append(self.analyze_logs)
 
-        # Create the agent instance from pydantic-ai
-        # Note: Consider caching or initializing this agent once if performance is critical
-        agent = Agent(self.model, tools=tools)
-
         self.console.print(f"[bold blue]Processing chat query:[/] {query}")
+        
         try:
-            # Run the query through the pydantic-ai agent
-            response = await agent.run(query)
-            self.console.print(f"[bold green]AI Response:[/] {response}")
-            return str(response) # Ensure response is a string
+            # Use the analysis agent to process the query
+            response = await self.analysis_agent.run(
+                LogAnalysisRequest(
+                    query=query,
+                    context={
+                        "tools": tools,
+                        "is_initialized": self.is_initialized,
+                        "has_data_analysis": hasattr(self, 'data_analysis_agent'),
+                        "has_specialized_agents": self.specialized_agents is not None
+                    }
+                )
+            )
+            
+            return response
+            
         except Exception as e:
-            self.console.print(f"[bold red]Error during AI query processing:[/] {e}")
-            return f"Error processing your query: {e}"
+            self.console.print(f"[bold red]Error processing query:[/] {str(e)}")
+            return LogAnalysisResponse(
+                answer="Error processing query.",
+                steps=[],
+                tools_used=[],
+                confidence=0.0,
+                error=str(e)
+            )
