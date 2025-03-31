@@ -11,6 +11,9 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
+# Set environment variables
+ENV NEXT_PUBLIC_API_URL=http://logai-api:8000
+
 # Build the Next.js application
 RUN npm run build
 
