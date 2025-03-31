@@ -229,8 +229,10 @@ class LogAIAgent:
         
         # Insert into DuckDB
         self.duckdb_conn.execute("DELETE FROM log_entries")
+        self.duckdb_conn.register('df', df) # Register DataFrame instead of INSERT
         self.duckdb_conn.execute("INSERT INTO log_entries SELECT * FROM df")
-        
+        self.duckdb_conn.unregister('df') # Unregister after use
+
         self.console.print(f"[bold green]✓[/] Loaded {len(records)} log entries into DuckDB")
 
     def _extract_templates_from_logs(self, parsed_logs: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -267,6 +269,7 @@ class LogAIAgent:
         # Insert into DuckDB
         self.duckdb_conn.execute("DELETE FROM log_templates")
         self.duckdb_conn.execute("INSERT INTO log_templates SELECT * FROM df")
+        self.duckdb_conn.unregister('df') # Unregister after use
         
         self.console.print(f"[bold green]✓[/] Stored {len(template_records)} templates in DuckDB")
 
@@ -326,35 +329,169 @@ class LogAIAgent:
             self.console.print(f"[bold red]Error executing query:[/] {str(e)}")
             return {"columns": [], "rows": []}
 
-def main():
-    parser = argparse.ArgumentParser(description="LogAI Agent - AI-powered log analysis")
-    parser.add_argument("--log-file", "-f", help="Path to the log file to analyze")
-    parser.add_argument("--format", help="Log format (auto-detected if not specified)")
-    parser.add_argument("--provider", choices=["openai", "gemini", "claude", "ollama"], default="openai", help="AI provider to use")
-    parser.add_argument("--api-key", help="API key for the AI provider")
-    parser.add_argument("--model", help="Model to use (provider-specific)")
-    parser.add_argument("--host", default="http://localhost:11434", help="Host URL for Ollama (only used with --provider=ollama)")
-    
-    args = parser.parse_args()
-    
-    try:
-        agent = LogAIAgent(
-            provider=args.provider, 
-            api_key=args.api_key, 
-            model=args.model,
-            host=args.host
-        )
-        
-        if args.log_file:
-            agent.initialize(args.log_file, args.format)
-            
-        agent.run_interactive_cli()
-        
-    except KeyboardInterrupt:
-        print("\nExiting LogAI Agent...")
-    except Exception as e:
-        print(f"Error: {str(e)}")
-        sys.exit(1)
+    # --- Tool Methods --- #
 
-if __name__ == "__main__":
-    main() 
+    def search_logs(self, query: str, limit: int = 100) -> Dict[str, Any]:
+        """Search log messages containing a specific query string."""
+        sql = f"""
+            SELECT id, timestamp, level, message 
+            FROM log_entries 
+            WHERE message LIKE '%{query}%' 
+            ORDER BY id DESC 
+            LIMIT {limit}
+        """
+        result = self.execute_query(sql)
+        # Convert to SearchResult format (optional, returning dict is okay too)
+        return {
+            "logs": [dict(zip(result['columns'], row)) for row in result['rows']],
+            "count": len(result['rows']) # Note: This is count of returned, not total matching
+        }
+
+    def get_template(self, template_id: str) -> Optional[Dict[str, Any]]:
+        """Get details for a specific log template."""
+        sql = f"SELECT template_id, template, count FROM log_templates WHERE template_id = '{template_id}'"
+        result = self.execute_query(sql)
+        if result and result['rows']:
+            return dict(zip(result['columns'], result['rows'][0]))
+        return None
+
+    def get_time_range(self) -> Dict[str, Any]:
+        """Get the start and end time of the loaded logs."""
+        sql = "SELECT MIN(timestamp) as start_time, MAX(timestamp) as end_time FROM log_entries"
+        result = self.execute_query(sql)
+        if result and result['rows'] and result['rows'][0][0] is not None:
+            start, end = result['rows'][0]
+            # TODO: Calculate duration accurately if needed
+            return {"start_time": str(start), "end_time": str(end), "duration_seconds": 0.0}
+        return {"start_time": "N/A", "end_time": "N/A", "duration_seconds": 0.0}
+
+    def count_occurrences(self, pattern: str, group_by: Optional[str] = None) -> Dict[str, Any]:
+        """Count occurrences of a pattern, optionally grouped."""
+        where_clause = f"WHERE message LIKE '%{pattern}%'"
+        
+        if group_by and group_by in ['level', 'template_id']: # Add other valid group_by columns
+            sql = f"""
+                SELECT {group_by}, COUNT(*) as count
+                FROM log_entries
+                {where_clause}
+                GROUP BY {group_by}
+                ORDER BY count DESC
+            """
+            result = self.execute_query(sql)
+            total = sum(row[1] for row in result['rows'])
+            breakdown = {str(row[0]): row[1] for row in result['rows']}
+        else:
+            sql = f"SELECT COUNT(*) FROM log_entries {where_clause}"
+            result = self.execute_query(sql)
+            total = result['rows'][0][0] if result and result['rows'] else 0
+            breakdown = {}
+            
+        return {"total": total, "breakdown": breakdown}
+
+    def summarize_logs(self, time_range: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+        """Provide a summary of logs (e.g., count by level)."""
+        # Basic summary: count by level
+        sql = "SELECT level, COUNT(*) as count FROM log_entries GROUP BY level ORDER BY count DESC"
+        # TODO: Add time_range filtering if provided
+        result = self.execute_query(sql)
+        summary = {str(row[0]): row[1] for row in result['rows']} if result else {}
+        return {"summary_by_level": summary}
+
+    def filter_by_time(self, since: Optional[str] = None, until: Optional[str] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Filter logs by a time range."""
+        conditions = []
+        if since:
+            conditions.append(f"timestamp >= '{since}'")
+        if until:
+            conditions.append(f"timestamp <= '{until}'")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"""
+            SELECT id, timestamp, level, message 
+            FROM log_entries 
+            {where_clause} 
+            ORDER BY id DESC 
+            LIMIT {limit}
+        """
+        result = self.execute_query(sql)
+        return [dict(zip(result['columns'], row)) for row in result['rows']] if result else []
+
+    def filter_by_level(self, levels: Optional[List[str]] = None, exclude_levels: Optional[List[str]] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Filter logs by level."""
+        conditions = []
+        if levels:
+            level_list = ", ".join([f"'{l}'" for l in levels])
+            conditions.append(f"level IN ({level_list})")
+        if exclude_levels:
+            exclude_list = ", ".join([f"'{l}'" for l in exclude_levels])
+            conditions.append(f"level NOT IN ({exclude_list})")
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"""
+            SELECT id, timestamp, level, message 
+            FROM log_entries 
+            {where_clause} 
+            ORDER BY id DESC 
+            LIMIT {limit}
+        """
+        result = self.execute_query(sql)
+        return [dict(zip(result['columns'], row)) for row in result['rows']] if result else []
+
+    def calculate_statistics(self) -> Dict[str, Any]:
+        """Calculate basic statistics about the logs."""
+        # Example: total count, time range, count by level
+        stats = {}
+        try:
+            count_res = self.execute_query("SELECT COUNT(*) FROM log_entries")
+            stats['total_logs'] = count_res['rows'][0][0] if count_res and count_res['rows'] else 0
+            
+            time_res = self.get_time_range()
+            stats['time_range'] = time_res
+            
+            level_res = self.execute_query("SELECT level, COUNT(*) FROM log_entries GROUP BY level")
+            stats['count_by_level'] = {str(row[0]): row[1] for row in level_res['rows']} if level_res else {}
+        except Exception as e:
+            self.console.print(f"[bold yellow]Warning calculating statistics: {e}[/]")
+        return stats
+
+    def get_trending_patterns(self, time_window: str = "hour") -> List[Dict[str, Any]]:
+        """Identify trending log templates (placeholder)."""
+        # This is complex. A simple placeholder: return top 5 templates by count.
+        sql = "SELECT template_id, template, count FROM log_templates ORDER BY count DESC LIMIT 5"
+        result = self.execute_query(sql)
+        return [dict(zip(result['columns'], row)) for row in result['rows']] if result else []
+
+    # --- AI Chat Method --- #
+    async def chat_query(self, query: str) -> str:
+        """Processes a natural language query using the AI model and available tools."""
+        if not self.model:
+            return "Error: AI model not initialized."
+        if not self.is_initialized:
+            return "Error: Agent not initialized with log data."
+
+        # Define the tools available to the AI
+        # The AI will decide which tool to use based on the query
+        tools = [
+            self.search_logs,
+            self.get_template,
+            self.get_time_range,
+            self.count_occurrences,
+            self.summarize_logs,
+            self.filter_by_time,
+            self.filter_by_level,
+            self.calculate_statistics,
+            self.get_trending_patterns,
+            self.execute_query # Allow direct SQL execution as a fallback tool
+        ]
+
+        # Create the agent instance from pydantic-ai
+        # Note: Consider caching or initializing this agent once if performance is critical
+        agent = Agent(self.model, tools=tools)
+
+        self.console.print(f"[bold blue]Processing chat query:[/] {query}")
+        try:
+            # Run the query through the pydantic-ai agent
+            response = await agent.run(query)
+            self.console.print(f"[bold green]AI Response:[/] {response}")
+            return str(response) # Ensure response is a string
+        except Exception as e:
+            self.console.print(f"[bold red]Error during AI query processing:[/] {e}")
+            return f"Error processing your query: {e}"

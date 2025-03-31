@@ -6,10 +6,11 @@ from pydantic import BaseModel, Field
 
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 # Import our LogAI agent
 from logai_agent import LogAIAgent, SearchResult, QueryResult, LogTemplate, TimeRange, CountResult
+import asyncio
 
 # Create FastAPI app
 app = FastAPI(
@@ -72,6 +73,18 @@ class LogAIAgentConfig(BaseModel):
     api_key: Optional[str] = None
     model: Optional[str] = None
     host: Optional[str] = "http://localhost:11434"
+
+class ChatRequest(BaseModel):
+    query: str
+
+class ChatResponse(BaseModel):
+    response: str
+
+class LogEntryResponse(BaseModel):
+    id: int
+    timestamp: str
+    level: str
+    message: str
 
 # Dependency to check if agent is initialized
 def get_initialized_agent():
@@ -152,7 +165,7 @@ async def execute_query(request: ExecuteQueryRequest, agent: LogAIAgent = Depend
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/template/{template_id}", response_model=Dict[str, Any])
-async def get_template(template_id: int, agent: LogAIAgent = Depends(get_initialized_agent)):
+async def get_template(template_id: str, agent: LogAIAgent = Depends(get_initialized_agent)):
     try:
         template = agent.get_template(template_id)
         if template is None:
@@ -222,6 +235,56 @@ async def get_trending_patterns(request: TrendingPatternsRequest, agent: LogAIAg
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+@app.get("/api/logs", response_model=List[LogEntryResponse])
+async def get_logs(agent: LogAIAgent = Depends(get_initialized_agent)):
+    """Fetches recent log entries."""
+    try:
+        # Fetch the latest 100 logs from DuckDB
+        query = "SELECT id, timestamp, level, message FROM log_entries ORDER BY id DESC LIMIT 100"
+        query_result = agent.execute_query(query)
+
+        if not query_result or 'rows' not in query_result or 'columns' not in query_result:
+            raise HTTPException(status_code=500, detail="Failed to retrieve logs from database")
+
+        # Map the results to the response model
+        cols = query_result['columns']
+        response_data = [
+            LogEntryResponse(
+                id=row[cols.index('id')],
+                timestamp=str(row[cols.index('timestamp')]),
+                level=str(row[cols.index('level')]),
+                message=str(row[cols.index('message')])
+            )
+            for row in query_result['rows']
+        ]
+        return response_data
+
+    except HTTPException as http_exc:
+        # Re-raise HTTPExceptions to return proper status codes
+        raise http_exc
+    except Exception as e:
+        print(f"Error fetching logs: {e}") # Add logging
+        raise HTTPException(status_code=500, detail=f"Error fetching logs: {str(e)}")
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest, agent: LogAIAgent = Depends(get_initialized_agent)):
+    """Handles chat queries about the logs."""
+    try:
+        query_text = request.query
+        print(f"Received chat query: {query_text}")
+
+        # Call the agent's chat method
+        response_text = await agent.chat_query(query_text)
+
+        return ChatResponse(response=response_text)
+
+    except HTTPException as http_exc:
+        # Re-raise HTTPExceptions (e.g., if agent not initialized)
+        raise http_exc
+    except Exception as e:
+        print(f"Error in chat endpoint: {e}") # Add logging
+        raise HTTPException(status_code=500, detail=f"Error processing chat query: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
