@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import json
+import logging
 from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
 
@@ -10,7 +11,19 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 # Import our LogAI agent
 from logai_agent import LogAIAgent, SearchResult, QueryResult, LogTemplate, TimeRange, CountResult
-import asyncio
+
+# Configure logging
+logs_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+os.makedirs(logs_dir, exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler(os.path.join(logs_dir, 'server.log'), mode='a')
+    ]
+)
+logger = logging.getLogger("logai-server")
 
 # Create FastAPI app
 app = FastAPI(
@@ -22,7 +35,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend origin
+    allow_origins=["http://localhost:3000", "*"],  # Allow frontend origin and all origins during development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -108,6 +121,7 @@ def get_initialized_agent():
 @app.post("/api/configure", response_model=dict)
 async def configure_agent(config: LogAIAgentConfig):
     global logai_agent
+    logger.info(f"Configuring LogAI agent with provider: {config.provider}, model: {config.model}")
     try:
         logai_agent = LogAIAgent(
             provider=config.provider,
@@ -115,50 +129,84 @@ async def configure_agent(config: LogAIAgentConfig):
             model=config.model,
             host=config.host
         )
+        logger.info("Agent configured successfully")
         return {"success": True, "message": "Agent configured successfully"}
     except Exception as e:
+        logger.error(f"Failed to configure agent: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/initialize", response_model=InitializeResponse)
 async def initialize(request: InitializeRequest):
     global logai_agent
+    logger.info(f"Initializing LogAI agent with log file: {request.log_file}, format: {request.format}")
     
     if logai_agent is None:
         # Use default configuration if not explicitly configured
+        logger.info("Agent not configured, using default configuration (OpenAI)")
         logai_agent = LogAIAgent(provider="openai")
     
     try:
         success = logai_agent.initialize(request.log_file, request.format)
         if success:
+            logger.info("LogAI Agent initialized successfully")
             return InitializeResponse(success=True, message="LogAI Agent initialized successfully")
         else:
+            logger.warning(f"Failed to initialize LogAI Agent with file: {request.log_file}")
             return InitializeResponse(success=False, message="Failed to initialize LogAI Agent")
     except Exception as e:
+        logger.error(f"Error initializing agent: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload-log-file")
 async def upload_log_file(file: UploadFile = File(...), format: Optional[str] = Form(None)):
     global logai_agent
     
+    logger.info(f"Received file upload request: {file.filename}, format: {format}")
+    
     if logai_agent is None:
         # Use default configuration if not explicitly configured
+        logger.info("Agent not configured, using default configuration (OpenAI)")
         logai_agent = LogAIAgent(provider="openai")
     
     try:
+        # Ensure the /tmp directory exists
+        os.makedirs("/tmp", exist_ok=True)
+        logger.info("Ensured /tmp directory exists")
+        
         # Save the uploaded file
         file_location = f"/tmp/{file.filename}"
-        with open(file_location, "wb") as f:
-            contents = await file.read()
-            f.write(contents)
+        logger.info(f"Saving uploaded file to {file_location}")
         
+        try:
+            contents = await file.read()
+            logger.info(f"Read {len(contents)} bytes from uploaded file")
+            
+            with open(file_location, "wb") as f:
+                f.write(contents)
+                logger.info(f"Successfully wrote file to {file_location}")
+        except Exception as file_error:
+            logger.error(f"Error writing file: {str(file_error)}", exc_info=True)
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "message": f"Error saving file: {str(file_error)}"}
+            )
+        
+        logger.info(f"Successfully saved file, initializing agent...")
         # Initialize the agent with the uploaded file
         success = logai_agent.initialize(file_location, format)
         if success:
+            logger.info(f"Successfully initialized agent with file {file_location}")
             return {"success": True, "message": "Log file uploaded and parsed successfully"}
         else:
+            logger.warning(f"Failed to initialize agent with file {file_location}")
             return {"success": False, "message": "Failed to parse the uploaded log file"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error processing file upload: {str(e)}", exc_info=True)
+        # Return a proper JSON response instead of raising an exception
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": f"Error processing file upload: {str(e)}"}
+        )
 
 @app.post("/api/search", response_model=List[Dict[str, Any]])
 async def search_logs(request: SearchRequest, agent: LogAIAgent = Depends(get_initialized_agent)):
@@ -314,20 +362,24 @@ async def chat_endpoint(request: ChatRequest, agent: LogAIAgent = Depends(get_in
     """Handles chat queries about the logs."""
     try:
         query_text = request.query
-        print(f"Received chat query: {query_text}")
+        logger.info(f"Received chat query: {query_text}")
 
         # Call the agent's chat method
+        logger.info("Processing chat query with agent")
         response_text = await agent.chat_query(query_text)
+        logger.info(f"Chat query processed successfully, response length: {len(response_text)}")
 
         return ChatResponse(response=response_text)
 
     except HTTPException as http_exc:
         # Re-raise HTTPExceptions (e.g., if agent not initialized)
+        logger.warning(f"HTTP exception in chat endpoint: {http_exc.detail}")
         raise http_exc
     except Exception as e:
-        print(f"Error in chat endpoint: {e}") # Add logging
+        logger.error(f"Error in chat endpoint: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error processing chat query: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
+    logger.info("Starting LogAI API Server on port 8000...")
     uvicorn.run("logai_server:app", host="0.0.0.0", port=8000, reload=True) 
