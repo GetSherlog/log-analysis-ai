@@ -1,24 +1,26 @@
-# Use an official Node runtime as a parent image
-FROM node:20-alpine AS base
+# Use Node.js LTS version
+FROM node:20-alpine
 
 # Set working directory
 WORKDIR /app
 
-# Install dependencies
+# Copy package files
 COPY package*.json ./
+
+# Install dependencies
 RUN npm install
 
-# Copy the rest of the application code
+# Copy source code
 COPY . .
 
 # Set environment variables
-ENV NEXT_PUBLIC_API_URL=http://logai-api:8000
+ENV NEXT_PUBLIC_API_URL=http://localhost:8000
 
-# Build the Next.js application
+# Build the application
 RUN npm run build
 
-# Expose port 3000
+# Expose port
 EXPOSE 3000
 
-# Command to run the application
+# Start the application
 CMD ["npm", "start"] 

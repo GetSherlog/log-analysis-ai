@@ -11,7 +11,7 @@ interface Message {
   timestamp: Date;
 }
 
-const API_URL = 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://logai-api:8000';
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);

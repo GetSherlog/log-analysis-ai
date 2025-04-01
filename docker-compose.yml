@@ -33,7 +33,7 @@ services:
       - "3000:3000"
     environment:
       # This ensures the frontend knows where to find the backend inside the Docker network
-      - NEXT_PUBLIC_API_URL=http://logai-api:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     depends_on:
       - logai-api
     networks:
