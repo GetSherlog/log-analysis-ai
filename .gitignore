@@ -5,6 +5,11 @@ lib/
 out/
 cmake-build-*/
 
+# Environment files
+.env
+.env.*
+!.env.example
+
 # DuckDB library
 duckdb-lib/
 

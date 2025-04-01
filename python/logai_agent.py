@@ -122,23 +122,19 @@ class LogAnalysisResponse(BaseModel):
 
 # Default model mapping for different providers
 DEFAULT_MODELS = {
-    "openai": "gpt-4o",
-    "gemini": "gemini-1.5-flash",
-    "claude": "claude-3-sonnet-20240229",
-    "ollama": "llama3"
+    "openai": "gpt-4"  # Using GPT-4 as the default model
 }
 
 # Provider Type
-ProviderType = Literal["openai", "gemini", "claude", "ollama"]
+ProviderType = Literal["openai"]
 
 # Main LogAI Agent class
 class LogAIAgent:
     """LogAI Agent for analyzing logs with AI assistance."""
     
-    def __init__(self, provider: Literal["openai", "gemini", "claude", "ollama"] = "openai", 
+    def __init__(self, provider: Literal["openai"] = "openai", 
                  api_key: Optional[str] = None, 
-                 model: Optional[str] = None,
-                 host: Optional[str] = "http://localhost:11434"):
+                 model: Optional[str] = None):
         """Initialize the LogAI Agent."""
         self.console = Console()
         self.provider = provider
@@ -147,11 +143,10 @@ class LogAIAgent:
         self.cpp_wrapper = logai_cpp
         self.api_key = api_key
         self.model = None
-        self.host = host
         self.specialized_agents = None
         
         # Set up model based on provider
-        self._setup_model(provider, model, api_key, host)
+        self._setup_model(provider, model, api_key)
         
         # Initialize the main analysis agent with type enforcement
         self.analysis_agent = Agent(
@@ -177,25 +172,18 @@ The analysis should:
 - Consider both direct and indirect relationships"""
         )
         
-    def _setup_model(self, provider: str, model: Optional[str] = None, api_key: Optional[str] = None, host: Optional[str] = None):
-        """Set up the appropriate AI model based on provider."""
-        model_name = model or DEFAULT_MODELS.get(provider)
-        
-        if provider == "openai":
-            from pydantic_ai.models.openai import OpenAIModel
-            self.model = OpenAIModel(api_key=api_key, model=model_name)
-        elif provider == "gemini":
-            from pydantic_ai.models.gemini import GeminiModel
-            self.model = GeminiModel(api_key=api_key, model=model_name)
-        elif provider == "claude":
-            from pydantic_ai.models.anthropic import AnthropicModel
-            self.model = AnthropicModel(api_key=api_key, model=model_name)
-        elif provider == "ollama" and HAS_OLLAMA:
-            from pydantic_ai.providers.openai import OpenAIProvider
-            # Configure Ollama with OpenAI-compatible provider
-            self.model = OpenAIProvider(base_url=host, api_key="", model=model_name)
-        else:
-            raise ValueError(f"Unsupported provider: {provider}")
+    def _setup_model(self, provider: str, model: Optional[str] = None, api_key: Optional[str] = None):
+        """Set up the OpenAI model."""
+        if provider != "openai":
+            raise ValueError("Only OpenAI provider is supported")
+            
+        model_name = model or DEFAULT_MODELS["openai"]
+        if not api_key:
+            raise ValueError("OpenAI API key is required")
+            
+        from pydantic_ai.models.openai import OpenAIModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+        self.model = OpenAIModel(model=model_name, provider=OpenAIProvider(api_key=api_key))
 
     def initialize(self, log_file: str, format: Optional[str] = None) -> bool:
         """Initialize the agent with a log file."""

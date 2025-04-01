@@ -82,10 +82,10 @@ class TrendingPatternsRequest(BaseModel):
     time_window: str = "hour"
 
 class LogAIAgentConfig(BaseModel):
-    provider: Literal["openai", "gemini", "claude", "ollama"] = "openai"
+    """Configuration for the LogAI agent."""
+    provider: Literal["openai"] = "openai"
     api_key: Optional[str] = None
     model: Optional[str] = None
-    host: Optional[str] = "http://localhost:11434"
 
 class AnalysisRequest(BaseModel):
     """Request for data analysis tasks."""
@@ -123,11 +123,13 @@ async def configure_agent(config: LogAIAgentConfig):
     global logai_agent
     logger.info(f"Configuring LogAI agent with provider: {config.provider}, model: {config.model}")
     try:
+        if not config.api_key:
+            raise ValueError("OpenAI API key is required")
+            
         logai_agent = LogAIAgent(
             provider=config.provider,
             api_key=config.api_key,
-            model=config.model,
-            host=config.host
+            model=config.model
         )
         logger.info("Agent configured successfully")
         return {"success": True, "message": "Agent configured successfully"}
