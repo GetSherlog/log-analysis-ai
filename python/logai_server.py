@@ -4,6 +4,10 @@ import json
 import logging
 from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 # Import our LogAI agent
 from logai_agent import LogAIAgent, SearchResult, QueryResult, LogTemplate, TimeRange, CountResult
+import asyncio
 
 # Configure logging
 logs_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
@@ -43,6 +48,11 @@ app.add_middleware(
 
 # Global agent instance
 logai_agent = None
+
+# Get OpenAI API key from environment
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    logger.warning("OpenAI API key not found in environment variables")
 
 # Request and response models
 class InitializeRequest(BaseModel):
@@ -123,12 +133,14 @@ async def configure_agent(config: LogAIAgentConfig):
     global logai_agent
     logger.info(f"Configuring LogAI agent with provider: {config.provider}, model: {config.model}")
     try:
-        if not config.api_key:
-            raise ValueError("OpenAI API key is required")
+        # Use environment variable if no API key provided
+        api_key = config.api_key or OPENAI_API_KEY
+        if not api_key:
+            raise ValueError("OpenAI API key is required. Set it in your environment variables or provide it in the request.")
             
         logai_agent = LogAIAgent(
             provider=config.provider,
-            api_key=config.api_key,
+            api_key=api_key,
             model=config.model
         )
         logger.info("Agent configured successfully")
@@ -168,7 +180,13 @@ async def upload_log_file(file: UploadFile = File(...), format: Optional[str] = 
     if logai_agent is None:
         # Use default configuration if not explicitly configured
         logger.info("Agent not configured, using default configuration (OpenAI)")
-        logai_agent = LogAIAgent(provider="openai")
+        if not OPENAI_API_KEY:
+            logger.error("OpenAI API key not found in environment variables")
+            return JSONResponse(
+                status_code=500,
+                content={"success": False, "message": "OpenAI API key not configured. Please set OPENAI_API_KEY in your environment variables."}
+            )
+        logai_agent = LogAIAgent(provider="openai", api_key=OPENAI_API_KEY)
     
     try:
         # Ensure the /tmp directory exists
